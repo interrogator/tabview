@@ -74,6 +74,17 @@ class ReloadException(Exception):
 class QuitException(Exception):
     pass
 
+class MaybeTruncatedString(str):
+
+    def __new__(self, s, width, trunc_char):
+
+        self.original = s
+
+        if len(s) > width:
+            s = s[:width-1]
+            s += trunc_char
+
+        return str.__new__(self, s)
 
 class Viewer(object):
     """The actual CSV viewer class.
@@ -793,7 +804,7 @@ class Viewer(object):
 
         # Adds the current cell content after the 'current cell' display
         wc = self.max_x - len(info) - 2
-        s = self.cellstr(yp, xp, wc)
+        s = self.cellstr(yp, xp, wc, True)
         addstr(self.scr, "  " + s, curses.A_NORMAL)
 
         # Print a divider line --- moved to below header
@@ -805,11 +816,12 @@ class Viewer(object):
             self.scr.clrtoeol()
             for x in range(0, self.vis_columns):
                 is_index = isinstance(self.index_depth, int) and x < self.index_depth
+                align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
                 xc, wc = self.column_xw(x)
                 if is_index:
-                    s = self.hdrstr(x, wc)
+                    s = self.hdrstr(x, wc, align_right)
                 else:
-                    s = self.hdrstr(x + self.win_x, wc)
+                    s = self.hdrstr(x + self.win_x, wc, align_right)
                 addstr(self.scr, 2, xc, s, curses.A_BOLD)
 
         # new dividing line, lower
@@ -830,6 +842,8 @@ class Viewer(object):
                 # check if this cell is currently selected
                 selected = x == self.x and y == self.y
 
+                align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
+
                 # determine colouring
                 if selected:
                     attr = curses.A_REVERSE
@@ -843,13 +857,14 @@ class Viewer(object):
 
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
-                s = self.cellstr(y + self.win_y, x + self.win_x, wc)
+                s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right)
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
+                # right now, this behaves poorly when text is truncated
                 if y > 0 \
                     and bold \
-                    and s == self.cellstr(y + self.win_y -1, x + self.win_x, wc) \
+                    and s.original == self.cellstr(y + self.win_y -1, x + self.win_x, wc, align_right).original \
                     and not selected:
                     s = ''
 
@@ -873,7 +888,7 @@ class Viewer(object):
         self.scr.refresh()
         #self.header_offset -= 2
 
-    def strpad(self, s, width):
+    def strpad(self, s, width, align_right):
         """pads cell content, left or right, depending on self.align_right"""
 
         if width < 1:
@@ -883,31 +898,28 @@ class Viewer(object):
 
         # simplified this to use python string methods
         extra_wide = len([c for c in s if unicodedata.east_asian_width(c) == 'W'])
-        if self.align_right:
+        if align_right:
             s = s.rjust(width + extra_wide, ' ')
         else:
             s = s.ljust(width + extra_wide, ' ')
-        # add truncation character if needed
-        if len(s) > width:
-            s = s[:width-1]
-            s += self.trunc_char
-        return s
 
-    def hdrstr(self, x, width):
+        return MaybeTruncatedString(s, width, self.trunc_char)
+
+    def hdrstr(self, x, width, align_right):
         "Format the content of the requested header for display"
         if len(self.header) <= x:
             s = ""
         else:
             s = self.header[x]
-        return self.strpad(s, width)
+        return self.strpad(s, width, align_right)
 
-    def cellstr(self, y, x, width):
+    def cellstr(self, y, x, width, align_right):
         "Format the content of the requested cell for display"
         if len(self.data) <= y or len(self.data[y]) <= x:
             s = ""
         else:
             s = self.data[y][x]
-        return self.strpad(s, width)
+        return self.strpad(s, width, align_right)
 
     def _get_column_widths(self, width):
         """Compute column width array
