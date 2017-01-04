@@ -98,6 +98,7 @@ class Viewer(object):
         self.header = args[1]['header']
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
+        self.prev_key = False
         self.header_offset = self.header_offset_orig
         self.num_data_columns = len(self.header)
         self._init_double_width(kwargs.get('double_width'))
@@ -674,6 +675,7 @@ class Viewer(object):
 
         """
         c = self.scr.getch()  # Get a keystroke
+        self.prev_key = c
         if c == curses.KEY_RESIZE:
             self.resize()
             return
@@ -841,16 +843,13 @@ class Viewer(object):
 
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
-                if bold:
-                    s = self.cellstr(y, x, wc)
-                else:
-                    s = self.cellstr(y + self.win_y, x + self.win_x, wc)
+                s = self.cellstr(y + self.win_y, x + self.win_x, wc)
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
                 if y > 0 \
                     and bold \
-                    and s == self.cellstr(y-1, x, wc) \
+                    and s == self.cellstr(y + self.win_y -1, x + self.win_x, wc) \
                     and not selected:
                     s = ''
 
@@ -1154,15 +1153,24 @@ def process_data(data, enc=None, delim=None, **kwargs):
                 data = data.to_frame()
 
         if isinstance(data.index, pd.MultiIndex):
-            index = [' '.join(x) for x in list(data.index)]
+            index = []
+            for item in list(data.index):
+                if isinstance(item, tuple):
+                    item = [str(i) for i in item]
+                    item = ' '.join(item)
+                index.append(item)
         else:
             index = [str(i) for i in list(data.index)]
         try:
             data = data.reset_index()
         # happens if index name is in columns list
         except ValueError:
-            data.index.name = None
+            # make a less likely name
+            size = len(data.index.names)
+            data.index.names = ['__%s__' % str(x) for x in data.index.names]
             data = data.reset_index()
+            fixed = [n.strip('_') for n in data.columns[:size]] + list(data.columns[size:])
+            data.columns = fixed
         header = [str(i) for i in data.columns]
         try:
             unicode_convert = np.vectorize(str)
@@ -1347,18 +1355,23 @@ def main(stdscr, *args, **kwargs):
     Viewer(stdscr, *args, **kwargs).run()
 
 
-def get_index_depth(data):
-    import pandas as pd
-    if isinstance(data, (pd.DataFrame, pd.Series)):
-        if isinstance(data.index, pd.MultiIndex):
-            return len(data.index.levels)
-        else:
-            return 1
+def get_index_depth(data, freeze):
+    if freeze:
+        return freeze
+    try:
+        import pandas as pd
+        if isinstance(data, (pd.DataFrame, pd.Series)):
+            if isinstance(data.index, pd.MultiIndex):
+                return len(data.index.levels)
+            else:
+                return 1
+    except ImportError:
+        return 1
     return False
 
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
          trunc_char='…', column_widths=None, search_str=None,
-         double_width=False, delimiter=None, orient='columns', align_right=False):
+         double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
     and then puts screen back in a normal state after closing or
@@ -1404,7 +1417,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                 else:
                     new_data = data
 
-                index_depth = get_index_depth(new_data)
+                index_depth = get_index_depth(new_data, kwargs.pop('freeze', False))
 
                 if input_type(new_data):
                     buf = process_data(new_data, enc, delimiter, orient=orient)
@@ -1425,6 +1438,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                                double_width=double_width,
                                align_right=align_right,
                                index_depth=index_depth)
+
 
             except (QuitException, KeyboardInterrupt):
                 return 0
