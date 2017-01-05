@@ -837,7 +837,7 @@ class Viewer(object):
                 addstr(self.scr, 2, xc, s, curses.A_BOLD)
 
         # new dividing line, lower
-        self.scr.hline(3, 0, curses.ACS_HLINE, self.max_x)
+        self.scr.hline(3, 0, ord("-"), self.max_x)
 
         # Print the table data
         # for each row
@@ -895,7 +895,7 @@ class Viewer(object):
                 # this is perhaps drawing and redrawing when it should not
                 if bold and self.index_depth - 1 == x:
                     try:
-                        self.scr.vline(2, xc+wc+1, curses.ACS_VLINE, self.max_y-1)
+                        self.scr.vline(2, xc+wc+1, ord("|"), self.max_y-1)
                     # _curses.error
                     except:
                         pass
@@ -1483,8 +1483,12 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
         if lc_all is not None:
             locale.setlocale(locale.LC_ALL, lc_all)
         if persist:
-            mypad_contents = []
+            pad_content = []
             height,width = stdscr.getmaxyx()
-            for i in range(height):
-                mypad_contents.append(stdscr.instr(i, 0).decode('utf-8'))
-            print('\n'.join(mypad_contents))
+            for x in range(height):
+                cont = stdscr.instr(x, 0).decode('utf-8')
+                if x < 3:
+                    cont = cont.replace('-', '─')
+                pad_content.append(cont)
+            out = '\n'.join(pad_content)
+            print(out.replace('|', '│'))
