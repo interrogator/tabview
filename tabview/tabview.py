@@ -1382,7 +1382,7 @@ def get_index_depth(data, freeze):
     return False
 
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
-         trunc_char='…', column_widths=None, search_str=None,
+         trunc_char='…', column_widths=None, search_str=None, persist=False,
          double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
@@ -1440,7 +1440,10 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                     # cannot read the file
                     return 1
 
-                curses.wrapper(main, buf,
+                stdscr = curses.initscr()
+
+                from corpkit.wrapper import wrapper
+                wrapper(main, stdscr, buf,
                                start_pos=start_pos,
                                column_width=column_width,
                                column_gap=column_gap,
@@ -1464,4 +1467,9 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
     finally:
         if lc_all is not None:
             locale.setlocale(locale.LC_ALL, lc_all)
-            
+        if persist:
+            mypad_contents = []
+            height,width = stdscr.getmaxyx()
+            for i in range(height):
+                mypad_contents.append(stdscr.instr(i, 0).decode('utf-8'))
+            print('\n'.join(mypad_contents))
