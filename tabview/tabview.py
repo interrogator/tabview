@@ -170,11 +170,21 @@ class Viewer(object):
         else:
             self.column_width = cws
 
-    def column_xw(self, x):
+    def column_xw(self, x, index=False):
         """Return the position and width of the requested column"""
-        xp = sum(self.column_width[self.win_x:self.win_x + x]) \
-            + x * self.column_gap
-        w = max(0, min(self.max_x - xp, self.column_width[self.win_x + x]))
+        #todo: fix this for variable column size
+        sid = self.index_depth
+        scw = self.column_width
+        indbits = scw[:sid] if x > sid else scw[:x]
+        cols = indbits + scw[self.win_x:self.win_x + x][sid:]
+        xp = sum(cols) + x * self.column_gap
+        w = max(0, min(self.max_x - xp, scw[self.win_x + x]))
+        if isinstance(scw, list):
+            if index:
+                w = scw[x]
+            else:
+                w = scw[x+self.win_x]
+                #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
         return xp, w
 
     def quit(self):
@@ -795,6 +805,8 @@ class Viewer(object):
         """Refresh the current display"""
         yp = self.y + self.win_y
         xp = self.x + self.win_x
+        if isinstance(self.index_depth, int) and self.x < self.index_depth:
+            xp = self.x
 
         # Print the current cursor cell in the top left corner
         self.scr.move(0, 0)
@@ -817,7 +829,7 @@ class Viewer(object):
             for x in range(0, self.vis_columns):
                 is_index = isinstance(self.index_depth, int) and x < self.index_depth
                 align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
-                xc, wc = self.column_xw(x)
+                xc, wc = self.column_xw(x, index=is_index)
                 if is_index:
                     s = self.hdrstr(x, wc, align_right)
                 else:
@@ -853,7 +865,7 @@ class Viewer(object):
                     else:
                         attr = curses.A_NORMAL
 
-                xc, wc = self.column_xw(x)
+                xc, wc = self.column_xw(x, index=bold)
 
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
