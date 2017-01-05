@@ -857,7 +857,10 @@ class Viewer(object):
 
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
-                s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right)
+                if bold:
+                    s = self.cellstr(y + self.win_y, x, wc, align_right)
+                else:
+                    s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right)
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
