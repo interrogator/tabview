@@ -25,6 +25,46 @@ from textwrap import wrap
 import unicodedata
 
 
+def colorama_data(lines, conc_data):
+    """take a list of strings for printing, and add ansi colors"""
+    import re
+    regex = re.compile(r'^\s*([0-9]+)')
+    import colorama
+    from colorama import Fore, Back, Style, init
+
+    if not conc_data:
+        return lines
+
+    lines_to_print = []
+    from colorama import Fore, Back, Style, init
+
+    init(autoreset=True)
+    # for each concordance line
+    for line in lines:
+        # get index as str
+        s = re.search(regex, line)
+        # should never happen
+        if not s:
+            continue
+        num = s.group(1)
+        #print(num)
+        # get dict of style and colour for line
+        gotnums = conc_data.get(int(num), {})
+        highstr = ''
+        if gotnums:
+            for sty, col in gotnums.items():
+                if col.upper() in ['DIM', 'NORMAL', 'BRIGHT', 'RESET_ALL']:
+                    thing_to_color = Style
+                elif sty == 'Back':
+                    thing_to_color = Back
+                else:
+                    thing_to_color = Fore
+                highstr += getattr(thing_to_color, col.upper())
+        highstr += line + Style.RESET_ALL
+
+        lines_to_print.append(highstr)
+    return '\n'.join(lines_to_print)
+
 if sys.version_info.major < 3:
     # Python 2.7 shim
     str = unicode
@@ -132,6 +172,8 @@ class Viewer(object):
         self._search_win_open = 0
         self.modifier = str()
         self.define_keys()
+        self.colours = kwargs.get('colours')
+        self.colourdict = self._make_colour_dict()
         self.resize()
         self.display()
         # Handle goto initial position (either (y,x), [y] or y)
@@ -157,6 +199,28 @@ class Viewer(object):
             self._cell_len = self.__cell_len_dw
         else:
             self._cell_len = len
+
+    def _make_colour_dict(self):
+        """
+        make a dictionary to get initialised colour pairs
+        """
+        if not self.colours:
+            return {}
+
+        import curses
+        colours = ["default", "black", "red", "green", "yellow",
+                   "blue", "magenta", "cyan", "white"]
+        dct = {}
+
+        i = 1
+        for c in colours:
+            for d in colours:
+                e = getattr(curses, "COLOR_" + c.upper(), -1)
+                f = getattr(curses, "COLOR_" + d.upper(), -1)
+                curses.init_pair(i, e, f)
+                dct[(c, d)] = i
+                i += 1
+        return dct
 
     def _init_column_widths(self, cw, cws):
         """Initialize column widths
@@ -846,6 +910,7 @@ class Viewer(object):
             yc = y + self.header_offset
             self.scr.move(yc, 0)
             self.scr.clrtoeol()
+
             # for each col
             for x in range(0, self.vis_columns):
 
@@ -865,6 +930,14 @@ class Viewer(object):
                     else:
                         attr = curses.A_NORMAL
 
+                    if self.colours:
+                        colour_data = self.colours.get(int(y), {})
+                        fore = colour_data.get('Fore', False)
+                        back = colour_data.get('Back', "default")
+                        t = self.colourdict.get((fore, back), False)
+                        if t is not False:
+                            attr = curses.color_pair(t)
+
                 xc, wc = self.column_xw(x, index=bold)
 
                 # if the cell is part of the index, 
@@ -882,6 +955,7 @@ class Viewer(object):
                     and s.original == self.cellstr(y + self.win_y -1, x + self.win_x, wc, align_right).original \
                     and not selected:
                     s = ''
+
 
                 if yc == self.max_y - 1 and x == self.vis_columns - 1:
                     # Prevents a curses error when filling in the bottom right
@@ -1396,7 +1470,7 @@ def get_index_depth(data, freeze):
         return 1
     return False
 
-def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
+def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
          trunc_char='…', column_widths=None, search_str=None, persist=False,
          double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
@@ -1467,7 +1541,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                                search_str=search_str,
                                double_width=double_width,
                                align_right=align_right,
-                               index_depth=index_depth)
+                               index_depth=index_depth,
+                               colours=colours)
 
 
             except (QuitException, KeyboardInterrupt):
@@ -1491,4 +1566,6 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                     cont = cont.replace('-', '─')
                 pad_content.append(cont)
             out = '\n'.join(pad_content)
+            if colours:
+                out = colorama_data(pad_content, colours)
             print(out.replace('|', '│'))
