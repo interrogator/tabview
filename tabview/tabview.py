@@ -218,7 +218,7 @@ class Viewer(object):
             return {}
 
         import curses
-        colours = ["default", "black", "red", "green", "yellow",
+        colours = ["reset", "black", "red", "green", "yellow",
                    "blue", "magenta", "cyan", "white"]
         dct = {}
 
@@ -946,8 +946,8 @@ class Viewer(object):
 
                     if self.colours:
                         colour_data = self.colours.get(int(y), {})
-                        fore = colour_data.get('Fore', False)
-                        back = colour_data.get('Back', "default")
+                        fore = colour_data.get('Fore', "reset")
+                        back = colour_data.get('Back', "reset")
                         t = self.colourdict.get((fore, back), False)
                         if t is not False:
                             attr = curses.color_pair(t)
@@ -1587,4 +1587,4 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
             out = '\n'.join(pad_content)
             if colours:
                 out = colorama_data(pad_content, colours)
-            print(out.replace('|', '│'), '\n\n')
+            print(out.replace('|', '│'))
