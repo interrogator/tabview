@@ -240,23 +240,6 @@ class Viewer(object):
         else:
             self.column_width = cws
 
-    def column_xwx(self, x, index=False):
-        """Return the position and width of the requested column"""
-        #todo: fix this for variable column size
-        sid = self.index_depth
-        
-        indbits = scw[:sid] if x > sid else scw[:x]
-        cols = indbits + scw[self.win_x:self.win_x + x][sid:]
-        xp = sum(cols) + x * self.column_gap
-        w = max(0, min(self.max_x - xp, scw[self.win_x + x]))
-        if isinstance(scw, list):
-            if index:
-                w = scw[x]
-            else:
-                w = scw[x+self.win_x]
-                #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
-        return xp, w
-
     def column_xw(self, x, index=False):
         """Return the position and width of the requested column"""
         scw = self.column_width
