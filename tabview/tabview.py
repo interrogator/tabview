@@ -116,13 +116,17 @@ class QuitException(Exception):
 
 class MaybeTruncatedString(str):
 
-    def __new__(self, s, width, trunc_char):
+    def __new__(self, s, width, trunc_char, trunc_left=False):
 
         self.original = s
 
         if len(s) > width:
-            s = s[:width-1]
-            s += trunc_char
+            if trunc_left:
+                s = s[-width+1:]
+                s = trunc_char + s
+            else:
+                s = s[:width-1]
+                s += trunc_char
 
         return str.__new__(self, s)
 
@@ -162,6 +166,8 @@ class Viewer(object):
             self.trunc_char = kwargs.get('trunc_char')
         except (UnicodeDecodeError, UnicodeError):
             self.trunc_char = '>'
+
+        self.trunc_left = kwargs.get('trunc_left')
 
         self.x, self.y = 0, 0
         self.win_x, self.win_y = 0, 0
@@ -234,11 +240,11 @@ class Viewer(object):
         else:
             self.column_width = cws
 
-    def column_xw(self, x, index=False):
+    def column_xwx(self, x, index=False):
         """Return the position and width of the requested column"""
         #todo: fix this for variable column size
         sid = self.index_depth
-        scw = self.column_width
+        
         indbits = scw[:sid] if x > sid else scw[:x]
         cols = indbits + scw[self.win_x:self.win_x + x][sid:]
         xp = sum(cols) + x * self.column_gap
@@ -249,6 +255,22 @@ class Viewer(object):
             else:
                 w = scw[x+self.win_x]
                 #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
+        return xp, w
+
+    def column_xw(self, x, index=False):
+        """Return the position and width of the requested column"""
+        scw = self.column_width
+        sid = self.index_depth
+        indbits = scw[:sid] if x > sid else scw[:x]
+        cols = indbits + scw[self.win_x:self.win_x + x][sid:]
+        xp = sum(cols) + x * self.column_gap
+        #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
+        w = max(0, min(self.max_x - xp, scw[self.win_x + x]))
+        if isinstance(scw, list):
+            if index:
+                w = max(0, min(self.max_x - xp, scw[x]))
+            else:
+                w = max(0, min(self.max_x - xp, scw[x+self.win_x]))
         return xp, w
 
     def quit(self):
@@ -920,6 +942,7 @@ class Viewer(object):
                 selected = x == self.x and y == self.y
 
                 align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
+                trunc_left = self.trunc_left[x] if isinstance(self.trunc_left, list) else self.trunc_left
 
                 # determine colouring
                 if selected:
@@ -940,12 +963,14 @@ class Viewer(object):
 
                 xc, wc = self.column_xw(x, index=bold)
 
+                # left of concordances needs to be truncated on the other side
+        
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
                 if bold:
-                    s = self.cellstr(y + self.win_y, x, wc, align_right)
+                    s = self.cellstr(y + self.win_y, x, wc, align_right, trunc_left=trunc_left)
                 else:
-                    s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right)
+                    s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right, trunc_left=trunc_left)
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
@@ -977,7 +1002,7 @@ class Viewer(object):
         self.scr.refresh()
         #self.header_offset -= 2
 
-    def strpad(self, s, width, align_right):
+    def strpad(self, s, width, align_right, trunc_left=False):
         """pads cell content, left or right, depending on self.align_right"""
 
         if width < 1:
@@ -992,7 +1017,7 @@ class Viewer(object):
         else:
             s = s.ljust(width + extra_wide, ' ')
 
-        return MaybeTruncatedString(s, width, self.trunc_char)
+        return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left)
 
     def hdrstr(self, x, width, align_right):
         "Format the content of the requested header for display"
@@ -1002,13 +1027,13 @@ class Viewer(object):
             s = self.header[x]
         return self.strpad(s, width, align_right)
 
-    def cellstr(self, y, x, width, align_right):
+    def cellstr(self, y, x, width, align_right, trunc_left=False):
         "Format the content of the requested cell for display"
         if len(self.data) <= y or len(self.data[y]) <= x:
             s = ""
         else:
             s = self.data[y][x]
-        return self.strpad(s, width, align_right)
+        return self.strpad(s, width, align_right, trunc_left=trunc_left)
 
     def _get_column_widths(self, width):
         """Compute column width array
@@ -1471,7 +1496,7 @@ def get_index_depth(data, freeze):
     return False
 
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
-         trunc_char='…', column_widths=None, search_str=None, persist=False,
+         trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
          double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
@@ -1542,8 +1567,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                                double_width=double_width,
                                align_right=align_right,
                                index_depth=index_depth,
-                               colours=colours)
-
+                               colours=colours,
+                               trunc_left=trunc_left)
 
             except (QuitException, KeyboardInterrupt):
                 return 0
