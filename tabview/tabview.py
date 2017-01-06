@@ -116,7 +116,7 @@ class QuitException(Exception):
 
 class MaybeTruncatedString(str):
 
-    def __new__(self, s, width, trunc_char, trunc_left=False):
+    def __new__(self, s, width, trunc_char, trunc_left=False, background=False, colgap=False):
 
         self.original = s
 
@@ -127,6 +127,9 @@ class MaybeTruncatedString(str):
             else:
                 s = s[:width-1]
                 s += trunc_char
+
+        if background:
+            s += ' ' * colgap
 
         return str.__new__(self, s)
 
@@ -154,6 +157,7 @@ class Viewer(object):
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
         self.prev_key = False
+        self.background = False
         self.header_offset = self.header_offset_orig
         self.num_data_columns = len(self.header)
         self._init_double_width(kwargs.get('double_width'))
@@ -919,6 +923,10 @@ class Viewer(object):
             # for each col
             for x in range(0, self.vis_columns):
 
+                self.background = False
+                back = False
+
+
                 # check if it's part of the index
                 bold = isinstance(self.index_depth, int) and x < self.index_depth
                 # check if this cell is currently selected
@@ -954,6 +962,9 @@ class Viewer(object):
                     s = self.cellstr(y + self.win_y, x, wc, align_right, trunc_left=trunc_left)
                 else:
                     s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right, trunc_left=trunc_left)
+
+                if back != 'default':
+                    self.background = back
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
@@ -1000,7 +1011,7 @@ class Viewer(object):
         else:
             s = s.ljust(width + extra_wide, ' ')
 
-        return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left)
+        return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left, background=self.background, colgap=self.column_gap)
 
     def hdrstr(self, x, width, align_right):
         "Format the content of the requested header for display"
@@ -1576,4 +1587,4 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
             out = '\n'.join(pad_content)
             if colours:
                 out = colorama_data(pad_content, colours)
-            print(out.replace('|', '│'))
+            print(out.replace('|', '│'), '\n\n')
