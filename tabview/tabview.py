@@ -25,6 +25,46 @@ from textwrap import wrap
 import unicodedata
 
 
+def colorama_data(lines, conc_data):
+    """take a list of strings for printing, and add ansi colors"""
+    import re
+    regex = re.compile(r'^\s*([0-9]+)')
+    import colorama
+    from colorama import Fore, Back, Style, init
+
+    if not conc_data:
+        return lines
+
+    lines_to_print = []
+    from colorama import Fore, Back, Style, init
+
+    init(autoreset=True)
+    # for each concordance line
+    for line in lines:
+        # get index as str
+        s = re.search(regex, line)
+        # should never happen
+        if not s:
+            continue
+        num = s.group(1)
+        #print(num)
+        # get dict of style and colour for line
+        gotnums = conc_data.get(int(num), {})
+        highstr = ''
+        if gotnums:
+            for sty, col in gotnums.items():
+                if col.upper() in ['DIM', 'NORMAL', 'BRIGHT', 'RESET_ALL']:
+                    thing_to_color = Style
+                elif sty == 'Back':
+                    thing_to_color = Back
+                else:
+                    thing_to_color = Fore
+                highstr += getattr(thing_to_color, col.upper())
+        highstr += line + Style.RESET_ALL
+
+        lines_to_print.append(highstr)
+    return '\n'.join(lines_to_print)
+
 if sys.version_info.major < 3:
     # Python 2.7 shim
     str = unicode
@@ -76,13 +116,20 @@ class QuitException(Exception):
 
 class MaybeTruncatedString(str):
 
-    def __new__(self, s, width, trunc_char):
+    def __new__(self, s, width, trunc_char, trunc_left=False, background=False, colgap=False):
 
         self.original = s
 
         if len(s) > width:
-            s = s[:width-1]
-            s += trunc_char
+            if trunc_left:
+                s = s[-width+1:]
+                s = trunc_char + s
+            else:
+                s = s[:width-1]
+                s += trunc_char
+
+        if background:
+            s += ' ' * colgap
 
         return str.__new__(self, s)
 
@@ -110,6 +157,7 @@ class Viewer(object):
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
         self.prev_key = False
+        self.background = False
         self.header_offset = self.header_offset_orig
         self.num_data_columns = len(self.header)
         self._init_double_width(kwargs.get('double_width'))
@@ -123,6 +171,8 @@ class Viewer(object):
         except (UnicodeDecodeError, UnicodeError):
             self.trunc_char = '>'
 
+        self.trunc_left = kwargs.get('trunc_left')
+
         self.x, self.y = 0, 0
         self.win_x, self.win_y = 0, 0
         self.max_y, self.max_x = 0, 0
@@ -132,6 +182,8 @@ class Viewer(object):
         self._search_win_open = 0
         self.modifier = str()
         self.define_keys()
+        self.colours = kwargs.get('colours')
+        self.colourdict = self._make_colour_dict()
         self.resize()
         self.display()
         # Handle goto initial position (either (y,x), [y] or y)
@@ -158,6 +210,28 @@ class Viewer(object):
         else:
             self._cell_len = len
 
+    def _make_colour_dict(self):
+        """
+        make a dictionary to get initialised colour pairs
+        """
+        if not self.colours:
+            return {}
+
+        import curses
+        colours = ["reset", "black", "red", "green", "yellow",
+                   "blue", "magenta", "cyan", "white"]
+        dct = {}
+
+        i = 1
+        for c in colours:
+            for d in colours:
+                e = getattr(curses, "COLOR_" + c.upper(), -1)
+                f = getattr(curses, "COLOR_" + d.upper(), -1)
+                curses.init_pair(i, e, f)
+                dct[(c, d)] = i
+                i += 1
+        return dct
+
     def _init_column_widths(self, cw, cws):
         """Initialize column widths
 
@@ -170,11 +244,20 @@ class Viewer(object):
         else:
             self.column_width = cws
 
-    def column_xw(self, x):
+    def column_xw(self, x, index=False):
         """Return the position and width of the requested column"""
-        xp = sum(self.column_width[self.win_x:self.win_x + x]) \
-            + x * self.column_gap
-        w = max(0, min(self.max_x - xp, self.column_width[self.win_x + x]))
+        scw = self.column_width
+        sid = self.index_depth
+        indbits = scw[:sid] if x > sid else scw[:x]
+        cols = indbits + scw[self.win_x:self.win_x + x][sid:]
+        xp = sum(cols) + x * self.column_gap
+        #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
+        w = max(0, min(self.max_x - xp, scw[self.win_x + x]))
+        if isinstance(scw, list):
+            if index:
+                w = max(0, min(self.max_x - xp, scw[x]))
+            else:
+                w = max(0, min(self.max_x - xp, scw[x+self.win_x]))
         return xp, w
 
     def quit(self):
@@ -795,6 +878,8 @@ class Viewer(object):
         """Refresh the current display"""
         yp = self.y + self.win_y
         xp = self.x + self.win_x
+        if isinstance(self.index_depth, int) and self.x < self.index_depth:
+            xp = self.x
 
         # Print the current cursor cell in the top left corner
         self.scr.move(0, 0)
@@ -817,7 +902,7 @@ class Viewer(object):
             for x in range(0, self.vis_columns):
                 is_index = isinstance(self.index_depth, int) and x < self.index_depth
                 align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
-                xc, wc = self.column_xw(x)
+                xc, wc = self.column_xw(x, index=is_index)
                 if is_index:
                     s = self.hdrstr(x, wc, align_right)
                 else:
@@ -825,7 +910,7 @@ class Viewer(object):
                 addstr(self.scr, 2, xc, s, curses.A_BOLD)
 
         # new dividing line, lower
-        self.scr.hline(3, 0, curses.ACS_HLINE, self.max_x)
+        self.scr.hline(3, 0, ord("-"), self.max_x)
 
         # Print the table data
         # for each row
@@ -834,8 +919,13 @@ class Viewer(object):
             yc = y + self.header_offset
             self.scr.move(yc, 0)
             self.scr.clrtoeol()
+
             # for each col
             for x in range(0, self.vis_columns):
+
+                self.background = False
+                back = False
+
 
                 # check if it's part of the index
                 bold = isinstance(self.index_depth, int) and x < self.index_depth
@@ -843,6 +933,7 @@ class Viewer(object):
                 selected = x == self.x and y == self.y
 
                 align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
+                trunc_left = self.trunc_left[x] if isinstance(self.trunc_left, list) else self.trunc_left
 
                 # determine colouring
                 if selected:
@@ -853,11 +944,27 @@ class Viewer(object):
                     else:
                         attr = curses.A_NORMAL
 
-                xc, wc = self.column_xw(x)
+                    if self.colours:
+                        colour_data = self.colours.get(int(y), {})
+                        fore = colour_data.get('Fore', "reset")
+                        back = colour_data.get('Back', "reset")
+                        t = self.colourdict.get((fore, back), False)
+                        if t is not False:
+                            attr = curses.color_pair(t)
 
+                xc, wc = self.column_xw(x, index=bold)
+
+                # left of concordances needs to be truncated on the other side
+        
                 # if the cell is part of the index, 
                 # could add an option here to freeze index or now
-                s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right)
+                if bold:
+                    s = self.cellstr(y + self.win_y, x, wc, align_right, trunc_left=trunc_left)
+                else:
+                    s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right, trunc_left=trunc_left)
+
+                if back != 'default':
+                    self.background = back
                 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
@@ -867,6 +974,7 @@ class Viewer(object):
                     and s.original == self.cellstr(y + self.win_y -1, x + self.win_x, wc, align_right).original \
                     and not selected:
                     s = ''
+
 
                 if yc == self.max_y - 1 and x == self.vis_columns - 1:
                     # Prevents a curses error when filling in the bottom right
@@ -880,7 +988,7 @@ class Viewer(object):
                 # this is perhaps drawing and redrawing when it should not
                 if bold and self.index_depth - 1 == x:
                     try:
-                        self.scr.vline(2, xc+wc+1, curses.ACS_VLINE, self.max_y-1)
+                        self.scr.vline(2, xc+wc+1, ord("|"), self.max_y-1)
                     # _curses.error
                     except:
                         pass
@@ -888,7 +996,7 @@ class Viewer(object):
         self.scr.refresh()
         #self.header_offset -= 2
 
-    def strpad(self, s, width, align_right):
+    def strpad(self, s, width, align_right, trunc_left=False):
         """pads cell content, left or right, depending on self.align_right"""
 
         if width < 1:
@@ -903,7 +1011,7 @@ class Viewer(object):
         else:
             s = s.ljust(width + extra_wide, ' ')
 
-        return MaybeTruncatedString(s, width, self.trunc_char)
+        return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left, background=self.background, colgap=self.column_gap)
 
     def hdrstr(self, x, width, align_right):
         "Format the content of the requested header for display"
@@ -913,13 +1021,13 @@ class Viewer(object):
             s = self.header[x]
         return self.strpad(s, width, align_right)
 
-    def cellstr(self, y, x, width, align_right):
+    def cellstr(self, y, x, width, align_right, trunc_left=False):
         "Format the content of the requested cell for display"
         if len(self.data) <= y or len(self.data[y]) <= x:
             s = ""
         else:
             s = self.data[y][x]
-        return self.strpad(s, width, align_right)
+        return self.strpad(s, width, align_right, trunc_left=trunc_left)
 
     def _get_column_widths(self, width):
         """Compute column width array
@@ -1381,8 +1489,8 @@ def get_index_depth(data, freeze):
         return 1
     return False
 
-def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
-         trunc_char='…', column_widths=None, search_str=None,
+def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
+         trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
          double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
@@ -1440,6 +1548,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                     # cannot read the file
                     return 1
 
+                stdscr = curses.initscr()
                 from corpkit.wrapper import wrapper
                 wrapper(main, stdscr, buf,
                                start_pos=start_pos,
@@ -1450,8 +1559,9 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                                search_str=search_str,
                                double_width=double_width,
                                align_right=align_right,
-                               index_depth=index_depth)
-
+                               index_depth=index_depth,
+                               colours=colours,
+                               trunc_left=trunc_left)
 
             except (QuitException, KeyboardInterrupt):
                 return 0
@@ -1465,4 +1575,15 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
     finally:
         if lc_all is not None:
             locale.setlocale(locale.LC_ALL, lc_all)
-            
+        if persist:
+            pad_content = []
+            height,width = stdscr.getmaxyx()
+            for x in range(height):
+                cont = stdscr.instr(x, 0).decode('utf-8')
+                if x < 3:
+                    cont = cont.replace('-', '─')
+                pad_content.append(cont)
+            out = '\n'.join(pad_content)
+            if colours:
+                out = colorama_data(pad_content, colours)
+            print(out.replace('|', '│'))
