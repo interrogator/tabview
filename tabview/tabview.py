@@ -575,9 +575,9 @@ class Viewer(object):
     def toggle_header(self):
         if self.header_offset == self.header_offset_orig:
             # Turn off header row
-            self.header_offset = self.header_offset - 1
+            self.header_offset = self.header_offset - 2
             self.data.insert(0, self.header)
-            self.y = self.y + 1
+            self.y = self.y + 2
         else:
             if len(self.data) == 1:
                 return
@@ -585,12 +585,12 @@ class Viewer(object):
             self.header_offset = self.header_offset_orig
             del self.data[self.data.index(self.header)]
             if self.y > 0:
-                self.y = self.y - 1
+                self.y = self.y - 2
             elif self.win_y > 0:
                 # Scroll down 1 to keep cursor on the same item
                 self.up()
                 self.down()
-                self.y = self.y - 1
+                self.y = self.y - 2
 
     def column_gap_down(self):
         self.column_gap = max(0, self.column_gap - 1)
