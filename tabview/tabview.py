@@ -1440,7 +1440,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2,
                     # cannot read the file
                     return 1
 
-                curses.wrapper(main, buf,
+                from corpkit.wrapper import wrapper
+                wrapper(main, stdscr, buf,
                                start_pos=start_pos,
                                column_width=column_width,
                                column_gap=column_gap,
