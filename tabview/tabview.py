@@ -408,13 +408,18 @@ class Viewer(object):
 
     def show_cell(self):
         "Display current cell in a pop-up window"
+        from corpkit.process import format_text_from_df
         yp = self.y + self.win_y
         xp = self.x + self.win_x
-        s = "\n" + self.data[yp][xp]
+        #s = "\n" + ' '.join(self.data.ix[yp])
+        header = self.header
+        s, i, l, m, r =  header.index('s'), header.index('i'), header.index('l'), header.index('m'), header.index('r')
+        middlestring = ' '.join([self.data[yp][l], '<' + str(self.data[yp][m]) + '>', self.data[yp][r]])
+        s, lnum = format_text_from_df(self.data[yp][m].df, int(self.data[yp][s]), middlestring)
         if not s:
             # Only display pop-up if cells have contents
             return
-        TextBox(self.scr, data=s, title=self.location_string(yp, xp))()
+        TextBox(self.scr, data=s, title=self.location_string(yp, xp), lnum=lnum)()
         self.resize()
 
     def _search_validator(self, ch):
@@ -518,20 +523,20 @@ class Viewer(object):
         return data, yp, xp
 
     def _search_cur_line_r(self, data, yp, xp):
-        """ Current line first, from yp,xp to the right """
+        """Current line first, from yp,xp to the right """
         res = False
         for x, item in enumerate(data[yp][xp:]):
-            if self.search_str in item.lower():
+            if self.search_str in str(item).lower():
                 xp += x
                 res = True
                 break
         return yp, xp, res
 
     def _search_cur_line_l(self, data, yp, xp):
-        """Last, search from beginning of current line to current position """
+        """Last, search from beginning of current line to current position"""
         res = x = False
         for x, item in enumerate(data[yp][:xp]):
-            if self.search_str in item.lower():
+            if self.search_str in str(item).lower():
                 res = True
                 break
         return yp, x, res
@@ -541,7 +546,7 @@ class Viewer(object):
         res = done = False
         for y, line in enumerate(data[yp + 1:]):
             for x, item in enumerate(line):
-                if self.search_str in item.lower():
+                if self.search_str in str(item).lower():
                     done = True
                     break
             if done is True:
@@ -555,7 +560,7 @@ class Viewer(object):
         res = done = y = x = False
         for y, line in enumerate(data[:yp]):
             for x, item in enumerate(line):
-                if self.search_str in item.lower():
+                if self.search_str in str(item).lower():
                     done = True
                     break
             if done is True:
@@ -648,7 +653,7 @@ class Viewer(object):
             return int(text) if text.isdigit() else text
 
         def alphanum_key(item):
-            return [convert(c) for c in re.split('([0-9]+)', key(item))]
+            return [convert(c) for c in re.split('([0-9]+)', key(str(item)))]
 
         return sorted(ls, key=alphanum_key, reverse=rev)
 
@@ -1001,15 +1006,15 @@ class Viewer(object):
 
         if width < 1:
             return str()
-        if '\n' in s:
-            s = s.replace('\n', '\\n')
+        if '\n' in str(s):
+            s = str(s).replace('\n', '\\n')
 
         # simplified this to use python string methods
         extra_wide = len([c for c in s if unicodedata.east_asian_width(c) == 'W'])
         if align_right:
-            s = s.rjust(width + extra_wide, ' ')
+            s = str(s).rjust(width + extra_wide, ' ')
         else:
-            s = s.ljust(width + extra_wide, ' ')
+            s = str(s).ljust(width + extra_wide, ' ')
 
         return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left, background=self.background, colgap=self.column_gap)
 
@@ -1138,11 +1143,12 @@ class TextBox(object):
     """Display a scrollable text box in the bottom half of the screen.
 
     """
-    def __init__(self, scr, data='', title=""):
+    def __init__(self, scr, data='', title="", lnum=0):
         self._running = False
         self.scr = scr
         self.data = data
         self.title = title
+        self.lnum = lnum # where we should start the cursor
         self.tdata = []    # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
         self.setup_handlers()
@@ -1174,8 +1180,7 @@ class TextBox(object):
             pass
         # transform raw data into list of lines ready to be printed
         s = self.data.splitlines()
-        s = [wrap(i, self.term_cols - 3, subsequent_indent=" ")
-             or [""] for i in s]
+        s = [wrap(i, self.term_cols - 3, subsequent_indent=" ") or [""] for i in s]
         self.tdata = [i for j in s for i in j]
         # -3 -- 2 for the box lines and 1 for the title row
         self.nlines = min(len(self.tdata), self.box_height - 3)
@@ -1209,6 +1214,13 @@ class TextBox(object):
         self.hid_rows -= 1
         self.hid_rows = max(0, self.hid_rows)
 
+    def move_to_starting_pos(self):
+        #todo
+        # set number of rows now hidden
+        self.hid_rows += self.lnum
+        for i in range(self.lnum):
+            self.scroll_down()
+
     def display(self):
         self.win.erase()
         addstr(self.win, 1, 1, self.title[:self.term_cols - 3],
@@ -1218,7 +1230,6 @@ class TextBox(object):
         addstr(self.win, 2, 1, '\n '.join(visible_rows))
         self.win.box()
         self.win.refresh()
-
 
 def csv_sniff(data, enc):
     """Given a list, sniff the dialect of the data and return it.
@@ -1242,6 +1253,13 @@ def process_data(data, enc=None, delim=None, **kwargs):
     the header row, and 'data', which corresponds to the data rows.
 
     """
+
+    def conv(item):
+        from corpkit.matches import Token
+        if isinstance(item, Token):
+            return item
+        else:
+            return str(item)
 
     process_type = input_type(data)
 
@@ -1292,15 +1310,16 @@ def process_data(data, enc=None, delim=None, **kwargs):
             fixed = [n.strip('_') for n in data.columns[:size]] + list(data.columns[size:])
             data.columns = fixed
         header = [str(i) for i in data.columns]
-        try:
-            unicode_convert = np.vectorize(str)
-            data = unicode_convert(data.values)
-        except:
-            np_codec = detect_encoding(data.select_dtypes(include=['object']).values.ravel().tolist())
-            unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
-            data = unicode_convert(data.values)
-        data[np.where(data == 'nan')] = ''
-        return {'data': data.tolist(), 'header': header, 'index': index}
+        data = data.applymap(conv)
+        #try:
+        #    unicode_convert = np.vectorize(str)
+        #    data = unicode_convert(data.values)
+        #except:
+        #    np_codec = detect_encoding(data.select_dtypes(include=['object']).values.ravel().tolist())
+        #    unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
+        #    data = unicode_convert(data.values)
+        #data[np.where(data == 'nan')] = ''
+        return {'data': data.values.tolist(), 'header': header, 'index': index}
 
     elif process_type == 'numpy':
         # If data is from a numpy object.
@@ -1525,6 +1544,9 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
             lc_all = None
     else:
         lc_all = None
+
+    stdscr = curses.initscr()
+
     try:
         buf = None
         while True:
@@ -1548,7 +1570,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                     # cannot read the file
                     return 1
 
-                stdscr = curses.initscr()
+                
                 from corpkit.wrapper import wrapper
                 wrapper(main, stdscr, buf,
                                start_pos=start_pos,
@@ -1577,7 +1599,12 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
             locale.setlocale(locale.LC_ALL, lc_all)
         if persist:
             pad_content = []
-            height,width = stdscr.getmaxyx()
+            try:
+                height,width = stdscr.getmaxyx()
+            except:
+                stdscr = curses.initscr()
+                height,width = stdscr.getmaxyx()
+
             for x in range(height):
                 cont = stdscr.instr(x, 0).decode('utf-8')
                 if x < 3:
