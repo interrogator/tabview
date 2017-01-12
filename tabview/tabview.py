@@ -413,7 +413,7 @@ class Viewer(object):
         xp = self.x + self.win_x
         #s = "\n" + ' '.join(self.data.ix[yp])
         header = self.header
-        s, i, l, m, r =  header.index('s'), header.index('i'), header.index('l'), header.index('m'), header.index('r')
+        s, i, l, m, r =  header.index('s'), header.index('i'), header.index('left'), header.index('match'), header.index('right')
         middlestring = ' '.join([self.data[yp][l], '<' + str(self.data[yp][m]) + '>', self.data[yp][r]])
         s, lnum = format_text_from_df(self.data[yp][m].df, int(self.data[yp][s]), middlestring)
         if not s:
@@ -637,25 +637,12 @@ class Viewer(object):
 
     def sort_by_column_natural(self):
         xp = self.x + self.win_x
-        self.data = self.sorted_nicely(self.data, itemgetter(xp))
+        self.data = sorted(self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp])
+        #self.data = self.sorted_nicely(self.data, itemgetter(xp self.index_depth))
 
     def sort_by_column_natural_reverse(self):
         xp = self.x + self.win_x
-        self.data = self.sorted_nicely(self.data, itemgetter(xp), rev=True)
-
-    def sorted_nicely(self, ls, key, rev=False):
-        """ Sort the given iterable in the way that humans expect.
-
-        From StackOverflow: http://goo.gl/nGBUrQ
-
-        """
-        def convert(text):
-            return int(text) if text.isdigit() else text
-
-        def alphanum_key(item):
-            return [convert(c) for c in re.split('([0-9]+)', key(str(item)))]
-
-        return sorted(ls, key=alphanum_key, reverse=rev)
+        self.data = sorted(self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp], reverse=True)
 
     def toggle_column_width(self):
         """Toggle column width mode between 'mode' and 'max' or set fixed
@@ -1254,13 +1241,6 @@ def process_data(data, enc=None, delim=None, **kwargs):
 
     """
 
-    def conv(item):
-        from corpkit.matches import Token
-        if isinstance(item, Token):
-            return item
-        else:
-            return str(item)
-
     process_type = input_type(data)
 
     if process_type == 'dict':
@@ -1281,7 +1261,6 @@ def process_data(data, enc=None, delim=None, **kwargs):
         return {'data' : data, 'header' : header, 'index': False}
     
     elif process_type == 'pandas':
-        # If data is from a pandas object.
         import numpy as np
         import pandas as pd
         if data.__class__.__name__ != 'DataFrame':
@@ -1299,27 +1278,26 @@ def process_data(data, enc=None, delim=None, **kwargs):
                 index.append(item)
         else:
             index = [str(i) for i in list(data.index)]
+        size = len(data.index.names)
         try:
             data = data.reset_index()
         # happens if index name is in columns list
         except ValueError:
             # make a less likely name
-            size = len(data.index.names)
             data.index.names = ['__%s__' % str(x) for x in data.index.names]
             data = data.reset_index()
             fixed = [n.strip('_') for n in data.columns[:size]] + list(data.columns[size:])
             data.columns = fixed
         header = [str(i) for i in data.columns]
-        data = data.applymap(conv)
-        #try:
-        #    unicode_convert = np.vectorize(str)
-        #    data = unicode_convert(data.values)
-        #except:
-        #    np_codec = detect_encoding(data.select_dtypes(include=['object']).values.ravel().tolist())
-        #    unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
-        #    data = unicode_convert(data.values)
-        #data[np.where(data == 'nan')] = ''
-        return {'data': data.values.tolist(), 'header': header, 'index': index}
+        try:
+            unicode_convert = np.vectorize(str)
+            data = unicode_convert(data.values)
+        except:
+            np_codec = detect_encoding(data.select_dtypes(include=['object']).values.ravel().tolist())
+            unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
+            data = unicode_convert(data.values)
+        data[np.where(data == 'nan')] = ''
+        return {'data': data.tolist(), 'header': header, 'index': index}
 
     elif process_type == 'numpy':
         # If data is from a numpy object.
