@@ -153,6 +153,7 @@ class Viewer(object):
         self.data = args[1]['data']
         self.header_offset_orig = 4
         self.align_right = kwargs.get('align_right', False)
+        self.df = kwargs.get('df', False)
         self.header = args[1]['header']
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
@@ -413,9 +414,9 @@ class Viewer(object):
         xp = self.x + self.win_x
         #s = "\n" + ' '.join(self.data.ix[yp])
         header = self.header
-        s, i, l, m, r =  header.index('s'), header.index('i'), header.index('left'), header.index('match'), header.index('right')
+        f, s, i, l, m, r =  header.index('file'), header.index('s'), header.index('i'), header.index('left'), header.index('match'), header.index('right')
         middlestring = ' '.join([self.data[yp][l], '<' + str(self.data[yp][m]) + '>', self.data[yp][r]])
-        s, lnum = format_text_from_df(self.data[yp][m].df, int(self.data[yp][s]), middlestring)
+        s, lnum = format_text_from_df(self.df, self.data[yp][f], int(self.data[yp][s]), middlestring)
         if not s:
             # Only display pop-up if cells have contents
             return
@@ -1488,7 +1489,7 @@ def get_index_depth(data, freeze):
 
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
          trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
-         double_width=False, delimiter=None, orient='columns', align_right=False, **kwargs):
+         double_width=False, delimiter=None, orient='columns', align_right=False, df=False, **kwargs):
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
     and then puts screen back in a normal state after closing or
@@ -1561,7 +1562,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                                align_right=align_right,
                                index_depth=index_depth,
                                colours=colours,
-                               trunc_left=trunc_left)
+                               trunc_left=trunc_left,
+                               df=df)
 
             except (QuitException, KeyboardInterrupt):
                 return 0
