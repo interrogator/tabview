@@ -628,6 +628,7 @@ class Viewer(object):
         self.column_width[xp] += max(1, int(self.column_width[xp] * 0.2))
         self.recalculate_layout()
 
+    #todo: sorting left column
     def sort_by_column(self):
         xp = self.x + self.win_x
         self.data = sorted(self.data, key=itemgetter(xp))
@@ -982,6 +983,7 @@ class Viewer(object):
                 if bold and self.index_depth - 1 == x:
                     try:
                         self.scr.vline(2, xc+wc+1, ord("|"), self.max_y-1)
+                        self.scr.vline(2, xc+wc+2, ord(" "), self.max_y-1)
                     # _curses.error
                     except:
                         pass
