@@ -893,7 +893,7 @@ class Viewer(object):
         if self.header_offset == self.header_offset_orig:
             self.scr.move(2, 0)
             self.scr.clrtoeol()
-            for x in range(0, self.vis_columns):
+            for x in range(0, self.vis_columns-self.index_depth):
                 is_index = isinstance(self.index_depth, int) and x < self.index_depth
                 align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
                 xc, wc = self.column_xw(x, index=is_index)
@@ -915,7 +915,7 @@ class Viewer(object):
             self.scr.clrtoeol()
 
             # for each col
-            for x in range(0, self.vis_columns):
+            for x in range(0, self.vis_columns-self.index_depth):
 
                 self.background = False
                 back = False
