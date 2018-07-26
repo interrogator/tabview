@@ -409,14 +409,14 @@ class Viewer(object):
 
     def show_cell(self):
         "Display current cell in a pop-up window"
-        from corpkit.process import format_text_from_df
         yp = self.y + self.win_y
         xp = self.x + self.win_x
         #s = "\n" + ' '.join(self.data.ix[yp])
         header = self.header
         f, s, i, l, m, r =  header.index('file'), header.index('s'), header.index('i'), header.index('left'), header.index('match'), header.index('right')
         middlestring = ' '.join([self.data[yp][l], '<' + str(self.data[yp][m]) + '>', self.data[yp][r]])
-        s, lnum = format_text_from_df(self.df, self.data[yp][f], int(self.data[yp][s]), middlestring)
+        s = '{} {} {}'.format(l, m, r)
+        lnum = s.index(m)
         if not s:
             # Only display pop-up if cells have contents
             return
@@ -1550,10 +1550,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                 else:
                     # cannot read the file
                     return 1
-
                 
-                from corpkit.wrapper import wrapper
-                wrapper(main, stdscr, buf,
+                curses.wrapper(main, buf,
                                start_pos=start_pos,
                                column_width=column_width,
                                column_gap=column_gap,
@@ -1566,7 +1564,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                                colours=colours,
                                trunc_left=trunc_left,
                                df=df)
-
+                
             except (QuitException, KeyboardInterrupt):
                 return 0
             except ReloadException as e:
