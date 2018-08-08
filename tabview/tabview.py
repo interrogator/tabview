@@ -23,6 +23,7 @@ from operator import itemgetter
 from subprocess import Popen, PIPE
 from textwrap import wrap
 import unicodedata
+import shlex
 
 
 def colorama_data(lines, conc_data):
@@ -67,7 +68,7 @@ def colorama_data(lines, conc_data):
 
 if sys.version_info.major < 3:
     # Python 2.7 shim
-    str = unicode
+    str = unicode  # noqa
 
     def KEY_CTRL(key):
         return curses.ascii.ctrl(bytes(key))
@@ -162,6 +163,15 @@ class Viewer(object):
         self.background = False
         self.header_offset = self.header_offset_orig
         self.num_data_columns = len(self.header)
+        if len(self.data) > 1 and \
+                not any(self._is_num(cell) for cell in self.header):
+            del self.data[0]
+            self.header_offset = self.header_offset_orig
+        else:
+            # Don't make one line file a header row
+            # If any of the header line cells are all digits, assume that the
+            # first line is NOT a header
+            self.header_offset = self.header_offset_orig - 1
         self._init_double_width(kwargs.get('double_width'))
         self.column_width_mode = kwargs.get('column_width')
         self.column_gap = kwargs.get('column_gap')
@@ -197,6 +207,13 @@ class Viewer(object):
             self.goto_x(kwargs.get('start_pos')[1])
         except (IndexError, TypeError):
             pass
+
+    def _is_num(self, cell):
+        try:
+            float(cell)
+            return True
+        except ValueError:
+            return False
 
     def _init_double_width(self, dw):
         """Initialize self._cell_len to determine if double width characters
@@ -635,7 +652,17 @@ class Viewer(object):
         self.column_width[xp] += max(1, int(self.column_width[xp] * 0.2))
         self.recalculate_layout()
 
-    #todo: sorting left column
+    def sort_by_column_numeric(self):
+        xp = self.x + self.win_x
+        self.data = sorted(self.data, key=lambda x:
+                           self.float_string_key(itemgetter(xp)(x)))
+
+    def sort_by_column_numeric_reverse(self):
+        xp = self.x + self.win_x
+        self.data = sorted(self.data, key=lambda x:
+                           self.float_string_key(itemgetter(xp)(x)),
+                           reverse=True)
+
     def sort_by_column(self):
         xp = self.x + self.win_x
         self.data = sorted(self.data, key=itemgetter(xp))
@@ -652,6 +679,17 @@ class Viewer(object):
     def sort_by_column_natural_reverse(self):
         xp = self.x + self.win_x
         self.data = sorted(self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp], reverse=True)
+
+    def float_string_key(self, value):
+        """Sort by data type first and by floating point value second,
+        if possible. Used for numeric sorting
+
+        """
+        try:
+            value = float(value)
+        except ValueError:
+            pass
+        return repr(type(value)), value
 
     def toggle_column_width(self):
         """Toggle column width mode between 'mode' and 'max' or set fixed
@@ -700,62 +738,65 @@ class Viewer(object):
                 pass
 
     def define_keys(self):
-        self.keys = {'j':   self.down,
-                     'k':   self.up,
-                     'h':   self.left,
-                     'l':   self.right,
-                     'J':   self.page_down,
-                     'K':   self.page_up,
-                     'm':   self.mark,
-                     "'":   self.goto_mark,
-                     'L':   self.page_right,
-                     'H':   self.page_left,
-                     'q':   self.quit,
-                     'Q':   self.quit,
-                     '$':   self.line_end,
-                     '^':   self.line_home,
-                     '0':   self.line_home,
-                     'g':   self.home,
-                     'G':   self.goto_row,
-                     '|':   self.goto_col,
-                     '\n':  self.show_cell,
-                     '/':   self.search,
-                     'n':   self.search_results,
-                     'p':   self.search_results_prev,
-                     't':   self.toggle_header,
-                     '-':   self.column_gap_down,
-                     '+':   self.column_gap_up,
-                     '<':   self.column_width_all_down,
-                     '>':   self.column_width_all_up,
-                     ',':   self.column_width_down,
-                     '.':   self.column_width_up,
-                     'a':   self.sort_by_column_natural,
-                     'A':   self.sort_by_column_natural_reverse,
-                     's':   self.sort_by_column,
-                     'S':   self.sort_by_column_reverse,
-                     'y':   self.yank_cell,
-                     'r':   self.reload,
-                     'c':   self.toggle_column_width,
-                     'C':   self.set_current_column_width,
-                     ']':   self.skip_to_row_change,
-                     '[':   self.skip_to_row_change_reverse,
-                     '}':   self.skip_to_col_change,
-                     '{':   self.skip_to_col_change_reverse,
-                     '?':   self.help,
-                     curses.KEY_F1:     self.help,
-                     curses.KEY_UP:     self.up,
-                     curses.KEY_DOWN:   self.down,
-                     curses.KEY_LEFT:   self.left,
-                     curses.KEY_RIGHT:  self.right,
-                     curses.KEY_HOME:   self.line_home,
-                     curses.KEY_END:    self.line_end,
-                     curses.KEY_PPAGE:  self.page_up,
-                     curses.KEY_NPAGE:  self.page_down,
-                     curses.KEY_IC:     self.mark,
-                     curses.KEY_DC:     self.goto_mark,
-                     curses.KEY_ENTER:  self.show_cell,
-                     KEY_CTRL('a'):  self.line_home,
-                     KEY_CTRL('e'):  self.line_end,
+        self.keys = {'j': self.down,
+                     'k': self.up,
+                     'h': self.left,
+                     'l': self.right,
+                     'J': self.page_down,
+                     'K': self.page_up,
+                     'm': self.mark,
+                     "'": self.goto_mark,
+                     'L': self.page_right,
+                     'H': self.page_left,
+                     'q': self.quit,
+                     'Q': self.quit,
+                     '$': self.line_end,
+                     '^': self.line_home,
+                     'g': self.home,
+                     'G': self.goto_row,
+                     '|': self.goto_col,
+                     '\n': self.show_cell,
+                     '/': self.search,
+                     'n': self.search_results,
+                     'p': self.search_results_prev,
+                     't': self.toggle_header,
+                     '-': self.column_gap_down,
+                     '+': self.column_gap_up,
+                     '<': self.column_width_all_down,
+                     '>': self.column_width_all_up,
+                     ',': self.column_width_down,
+                     '.': self.column_width_up,
+                     'a': self.sort_by_column_natural,
+                     'A': self.sort_by_column_natural_reverse,
+                     '#': self.sort_by_column_numeric,
+                     '@': self.sort_by_column_numeric_reverse,
+                     's': self.sort_by_column,
+                     'S': self.sort_by_column_reverse,
+                     'y': self.yank_cell,
+                     'r': self.reload,
+                     'c': self.toggle_column_width,
+                     'C': self.set_current_column_width,
+                     ']': self.skip_to_row_change,
+                     '[': self.skip_to_row_change_reverse,
+                     '}': self.skip_to_col_change,
+                     '{': self.skip_to_col_change_reverse,
+                     '?': self.help,
+                     curses.KEY_F1: self.help,
+                     curses.KEY_UP: self.up,
+                     curses.KEY_DOWN: self.down,
+                     curses.KEY_LEFT: self.left,
+                     curses.KEY_RIGHT: self.right,
+                     curses.KEY_HOME: self.line_home,
+                     curses.KEY_END: self.line_end,
+                     curses.KEY_PPAGE: self.page_up,
+                     curses.KEY_NPAGE: self.page_down,
+                     curses.KEY_IC: self.mark,
+                     curses.KEY_DC: self.goto_mark,
+                     curses.KEY_ENTER: self.show_cell,
+                     KEY_CTRL('a'): self.line_home,
+                     KEY_CTRL('e'): self.line_end,
+                     KEY_CTRL('l'): self.scr.redrawwin,
+                     KEY_CTRL('g'): self.show_info,
                      }
 
     def run(self):
@@ -1154,14 +1195,14 @@ class TextBox(object):
         self.run()
 
     def setup_handlers(self):
-        self.handlers = {'\n':              self.close,
-                         curses.KEY_ENTER:  self.close,
-                         'q':               self.close,
+        self.handlers = {'\n': self.close,
+                         curses.KEY_ENTER: self.close,
+                         'q': self.close,
                          curses.KEY_RESIZE: self.close,
-                         curses.KEY_DOWN:   self.scroll_down,
-                         'j':               self.scroll_down,
-                         curses.KEY_UP:     self.scroll_up,
-                         'k':               self.scroll_up,
+                         curses.KEY_DOWN: self.scroll_down,
+                         'j': self.scroll_down,
+                         curses.KEY_UP: self.scroll_up,
+                         'k': self.scroll_up,
                          }
 
     def _calculate_layout(self):
@@ -1248,7 +1289,6 @@ def process_data(data, enc=None, delim=None, **kwargs):
 
     Returns a dictionary containing two entries: 'header', which corresponds to
     the header row, and 'data', which corresponds to the data rows.
-
     """
 
     process_type = input_type(data)
@@ -1370,7 +1410,6 @@ def process_data(data, enc=None, delim=None, **kwargs):
 
 def np_decode(inp_str, codec):
     """String decoding function for numpy arrays.
-
     """
     try:
         return str(inp_str)
@@ -1481,7 +1520,6 @@ def main(stdscr, *args, **kwargs):
         pass
     Viewer(stdscr, *args, **kwargs).run()
 
-
 def get_index_depth(data, freeze):
     if freeze:
         return freeze
@@ -1499,6 +1537,7 @@ def get_index_depth(data, freeze):
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
          trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
          double_width=False, delimiter=None, orient='columns', align_right=False, df=False, **kwargs):
+
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
     and then puts screen back in a normal state after closing or
