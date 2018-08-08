@@ -154,6 +154,7 @@ class Viewer(object):
         self.header_offset_orig = 4
         self.align_right = kwargs.get('align_right', False)
         self.df = kwargs.get('df', False)
+        self.reference = getattr(self, 'reference', self.df)
         self.header = args[1]['header']
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
@@ -411,12 +412,18 @@ class Viewer(object):
         "Display current cell in a pop-up window"
         yp = self.y + self.win_y
         xp = self.x + self.win_x
-        #s = "\n" + ' '.join(self.data.ix[yp])
-        header = self.header
-        f, s, i, l, m, r =  header.index('file'), header.index('s'), header.index('i'), header.index('left'), header.index('match'), header.index('right')
-        middlestring = ' '.join([self.data[yp][l], '<' + str(self.data[yp][m]) + '>', self.data[yp][r]])
-        s = '{} {} {}'.format(l, m, r)
-        lnum = s.index(m)
+        target = self.header[xp]
+        query = self.data[self.y][self.x]
+        show = ['w'] + [target] if target != 'w' else ['w']
+        outshow = ['file', 's', 'left', 'match', 'right']
+        if target not in outshow:
+            outshow.append(target)
+
+        concordance = self.df.concordance(target, query, show)
+        outshow = [i for i in outshow if i in concordance.columns]
+        concordance = concordance[outshow]
+        s = concordance.to_string()
+        lnum = 0
         if not s:
             # Only display pop-up if cells have contents
             return
@@ -949,8 +956,8 @@ class Viewer(object):
                 xc, wc = self.column_xw(x, index=bold)
 
                 # left of concordances needs to be truncated on the other side
-        
-                # if the cell is part of the index, 
+
+                # if the cell is part of the index,
                 # could add an option here to freeze index or now
                 if bold:
                     s = self.cellstr(y + self.win_y, x, wc, align_right, trunc_left=trunc_left)
@@ -959,7 +966,7 @@ class Viewer(object):
 
                 if back != 'default':
                     self.background = back
-                
+
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
                 # right now, this behaves poorly when text is truncated
@@ -1262,7 +1269,7 @@ def process_data(data, enc=None, delim=None, **kwargs):
         else:
             data = [[str(j) for j in i] for i in pad_data(data)]
         return {'data' : data, 'header' : header, 'index': False}
-    
+
     elif process_type == 'pandas':
         import numpy as np
         import pandas as pd
@@ -1315,8 +1322,8 @@ def process_data(data, enc=None, delim=None, **kwargs):
         data[np.where(data == 'nan')] = ''
         if len(data.shape) == 1:
             data = np.array((data,))
-        header = [str(i) for i in range(data.shape[1])] 
-        index = [str(i) for i in range(data.shape[0])] 
+        header = [str(i) for i in range(data.shape[1])]
+        index = [str(i) for i in range(data.shape[0])]
         data = data.tolist()
         return {'data': data, 'header': header, 'index': index}
 
@@ -1337,7 +1344,7 @@ def process_data(data, enc=None, delim=None, **kwargs):
             csv_obj = csv.reader(data, delimiter=delim)
             for row in csv_obj:
                 csv_data.append(row)
-        csv_data = [[str(j) for j in i] for i in pad_data(csv_data)] 
+        csv_data = [[str(j) for j in i] for i in pad_data(csv_data)]
         if len(csv_data) > 1:
             csv_header = csv_data[0]
             csv_data = csv_data[1:]
@@ -1352,7 +1359,7 @@ def process_data(data, enc=None, delim=None, **kwargs):
             data = pad_data(py2_list_to_unicode(data))
         else:
             data = [[str(j) for j in i] for i in pad_data(data)]
-        
+
         index = [d[0] for d in data]
         if len(data) > 1:
             header = data[0]
@@ -1396,7 +1403,7 @@ def input_type(data):
     Both - list of lists is just a list
 
     Returns: 'file' if data is from a file, 'list' if from a python list/tuple,
-    'dict' if from a python dictionary, 'numpy' if from a numpy ndarray, and 
+    'dict' if from a python dictionary, 'numpy' if from a numpy ndarray, and
     'pandas' if from a pandas Series, DataFrame or Panel.
 
     """
@@ -1550,7 +1557,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                 else:
                     # cannot read the file
                     return 1
-                
+
                 curses.wrapper(main, buf,
                                start_pos=start_pos,
                                column_width=column_width,
@@ -1564,7 +1571,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                                colours=colours,
                                trunc_left=trunc_left,
                                df=df)
-                
+
             except (QuitException, KeyboardInterrupt):
                 return 0
             except ReloadException as e:
