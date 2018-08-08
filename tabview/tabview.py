@@ -208,6 +208,32 @@ class Viewer(object):
         except (IndexError, TypeError):
             pass
 
+    def show_info(self):
+        """Display data information in a pop-up window
+        """
+        fn = self.info
+        yp = self.y + self.win_y
+        xp = self.x + self.win_x
+        location = self.location_string(yp, xp)
+
+        def sizeof_fmt(num, suffix='B'):
+            for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+                if abs(num) < 1024.0:
+                    return "{:3.1f}{}{}".format(num, unit, suffix)
+                num /= 1024.0
+            return "{:.1f}{}{}".format(num, 'Yi', suffix)
+        size = sizeof_fmt(sys.getsizeof(self.data))
+        rows_cols = str((len(self.data), self.num_data_columns))
+        info = [("Filename/Data Info:", fn),
+                ("Current Location:", location),
+                ("Total Rows/Columns:", rows_cols),
+                ("Data Size:", size)]
+        display = "\n\n".join(["{:<20}{:<}".format(i, j)
+                               for i, j in info])
+        TextBox(self.scr, data=display)()
+        self.resize()
+
+
     def _is_num(self, cell):
         try:
             float(cell)
@@ -425,27 +451,35 @@ class Viewer(object):
         end = len(self.data[self.y + self.win_y])
         self.goto_x(end)
 
+
     def show_cell(self):
         "Display current cell in a pop-up window"
         yp = self.y + self.win_y
         xp = self.x + self.win_x
-        target = self.header[xp]
-        query = self.data[self.y][self.x]
-        show = ['w'] + [target] if target != 'w' else ['w']
-        outshow = ['file', 's', 'left', 'match', 'right']
-        if target not in outshow:
-            outshow.append(target)
 
-        concordance = self.df.concordance(target, query, show)
-        outshow = [i for i in outshow if i in concordance.columns]
-        concordance = concordance[outshow]
-        s = concordance.to_string()
-        lnum = 0
-        if not s:
-            # Only display pop-up if cells have contents
-            return
-        TextBox(self.scr, data=s, title=self.location_string(yp, xp), lnum=lnum)()
-        self.resize()
+        is_conc = all(i in self.df.columns for i in ['left', 'match', 'right'])
+
+        if not is_conc:
+            target = self.header[xp]
+            query = self.data[self.y][self.x]
+            show = ['w'] + [target] if target != 'w' else ['w']
+            outshow = ['file', 's', 'left', 'match', 'right']#, 'speaker']
+            if target not in outshow:
+                outshow.append(target)
+
+            concordance = self.df.concordance(target, query, show)
+            outshow = [i for i in outshow if i in concordance.columns]
+            concordance = concordance[outshow]
+
+            text = concordance.to_string()
+
+            cursor_line_pos = 0
+            if not text:
+                return
+
+            TextBox(self.scr, data=text, title=self.location_string(yp, xp), cursor_line_pos=cursor_line_pos)()
+            self.resize()
+
 
     def _search_validator(self, ch):
         """Fix Enter and backspace for textbox.
@@ -1181,14 +1215,16 @@ class TextBox(object):
     """Display a scrollable text box in the bottom half of the screen.
 
     """
-    def __init__(self, scr, data='', title="", lnum=0):
+    def __init__(self, scr, data='', title="", cursor_line_pos=0, match_line=None):
         self._running = False
         self.scr = scr
         self.data = data
         self.title = title
-        self.lnum = lnum # where we should start the cursor
+        self.match_line = match_line
+        self.cursor_line_pos = cursor_line_pos # where we should start the cursor
         self.tdata = []    # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
+        self.hid_cols = 0
         self.setup_handlers()
 
     def __call__(self):
@@ -1200,6 +1236,8 @@ class TextBox(object):
                          'q': self.close,
                          curses.KEY_RESIZE: self.close,
                          curses.KEY_DOWN: self.scroll_down,
+                         curses.KEY_LEFT: self.scroll_left,
+                         curses.KEY_RIGHT: self.scroll_right,
                          'j': self.scroll_down,
                          curses.KEY_UP: self.scroll_up,
                          'k': self.scroll_up,
@@ -1218,6 +1256,7 @@ class TextBox(object):
             pass
         # transform raw data into list of lines ready to be printed
         s = self.data.splitlines()
+        self.longest_row = max(len(i) for i in s)
         s = [wrap(i, self.term_cols - 3, subsequent_indent=" ") or [""] for i in s]
         self.tdata = [i for j in s for i in j]
         # -3 -- 2 for the box lines and 1 for the title row
@@ -1252,11 +1291,19 @@ class TextBox(object):
         self.hid_rows -= 1
         self.hid_rows = max(0, self.hid_rows)
 
+    def scroll_left(self):
+        self.hid_cols -= 1
+        self.hid_cols = max(0, self.hid_cols)
+
+    def scroll_right(self):
+        self.hid_cols += 1
+        self.hid_cols min(self.longest_row, self.cols)
+
     def move_to_starting_pos(self):
         #todo
         # set number of rows now hidden
-        self.hid_rows += self.lnum
-        for i in range(self.lnum):
+        self.hid_rows += self.cursor_line_pos
+        for i in range(self.cursor_line_pos):
             self.scroll_down()
 
     def display(self):
