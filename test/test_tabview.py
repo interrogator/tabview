@@ -26,9 +26,13 @@ res2 = ["ALP", "B34130005", "Ladies' 7 oz. ComfortSoft® Cotton "
         "36", "1007", "no", "/images/alp/prodDetail/035_00_p.jpg",
         "/images/alp/backDetail/035_bk_00_p.jpg",
         "/images/alp/sideDetail/035_sd_00_p.jpg"]
+res3 = [["A", "B", "C", "D"],
+        ["-0.000103903949401458218", "-0.687995654231882803", "+3",
+        "+40.9029683683568948"]]
 
 data_1 = ('sample/unicode-example-utf8.txt', 'utf-8', res1)
 data_2 = ('sample/test_latin-1.csv', 'latin-1', res2)
+data_3 = ('sample/commented_annotated_numeric.txt', 'utf-8', res3[1])
 
 list_1 = [['a', 'b', 'c'], ['d', 'e', 'f'], [1, 2, 3]]
 
@@ -100,6 +104,18 @@ class TestTabviewUnits(unittest.TestCase):
     def test_tabview_file_latin1(self):
         self.tabview_file(data_2)
 
+    def test_tabview_file_annotated_comment(self):
+        self.tabview_file(data_3)
+        # Test removal of comment mark in first line
+        sample_data = res3[0]
+        res = t.process_data(self.data(data_3[0]))
+        for j, i in enumerate(sample_data):
+            try:
+                i = i.decode('utf-8')
+            except AttributeError:
+                i = str(i)
+            self.assertEqual(i, res[0][j])
+
 
 class TestTabviewIntegration(unittest.TestCase):
     """Integration tests for tabview. Run through the curses routines and some
@@ -116,7 +132,8 @@ class TestTabviewIntegration(unittest.TestCase):
         v.display()
         for key in v.keys:
             if key not in ('q', 'Q', 'r', '?', '/', '\n', 'a', 'A', 's', 'S',
-                           'y', curses.KEY_F1, curses.KEY_ENTER):
+                           '#', '@', 'y', curses.KEY_F1, curses.KEY_ENTER,
+                           t.KEY_CTRL('g')):
                 v.keys[key]()
             elif key in ('q', 'Q', 'r'):
                 self.assertRaises((t.ReloadException, t.QuitException),
@@ -159,7 +176,7 @@ class TestTabviewIntegration(unittest.TestCase):
                        start_pos=(0, 0), column_width=20, column_gap=2,
                        column_widths=None, trunc_char='…',
                        search_str=None)
-    
+
     def test_tabview_array_2d(self):
         curses.wrapper(self.main, t.process_data(pd.read_csv(data_1[0]).values),
                        start_pos=(0, 0), column_width='mode', column_gap=2,
@@ -177,6 +194,12 @@ class TestTabviewIntegration(unittest.TestCase):
                        start_pos=(0, 0), column_width=20, column_gap=2,
                        column_widths=None, trunc_char='…',
                        search_str=None)
+
+    def test_tabview_annotated_comment(self):
+        curses.wrapper(self.main, t.process_data(self.data(data_3[0])),
+                       start_pos=(0, 1), column_width='mode', column_gap=2,
+                       column_widths=None, trunc_char='…', search_str=None)
+
 
 if __name__ == '__main__':
     unittest.main()
