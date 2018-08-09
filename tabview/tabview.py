@@ -28,7 +28,6 @@ import shlex
 
 def colorama_data(lines, conc_data):
     """take a list of strings for printing, and add ansi colors"""
-    import re
     regex = re.compile(r'^\s*([0-9]+)')
     import colorama
     from colorama import Fore, Back, Style, init
@@ -155,7 +154,7 @@ class Viewer(object):
         self.header_offset_orig = 4
         self.align_right = kwargs.get('align_right', False)
         self.df = kwargs.get('df', False)
-        self.reference = getattr(self, 'reference', self.df)
+        self.reference = getattr(self.df, 'reference', self.df.copy())
         self.header = args[1]['header']
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
@@ -451,6 +450,17 @@ class Viewer(object):
         end = len(self.data[self.y + self.win_y])
         self.goto_x(end)
 
+    def find_match_line(self, concordance, filename, s, predict):
+        """
+        Get the concordance line related to a cell
+        """
+        #raise Exception(concordance.iloc[0])
+        import pandas as pd
+        conc = pd.DataFrame(concordance).astype(object)
+        conc = conc[conc['file'] == filename]
+        conc = conc[conc['s'].astype(int) == int(s)]
+        conc = conc[conc['match'].str.strip() == predict]
+        return conc.index[0]
 
     def show_cell(self):
         "Display current cell in a pop-up window"
@@ -460,24 +470,36 @@ class Viewer(object):
         is_conc = all(i in self.df.columns for i in ['left', 'match', 'right'])
 
         if not is_conc:
+            # cell content
+            filename = self.data[self.y][0]
+            s = self.data[self.y][1]
             target = self.header[xp]
             query = self.data[self.y][self.x]
+            word = self.data[self.y][3]
             show = ['w'] + [target] if target != 'w' else ['w']
+            predict = query if show == ['w'] else '{}/{}'.format(word, query)
             outshow = ['file', 's', 'left', 'match', 'right']#, 'speaker']
             if target not in outshow:
                 outshow.append(target)
 
             concordance = self.df.concordance(target, query, show)
+            match_line = self.find_match_line(concordance, filename, s, predict)
+
             outshow = [i for i in outshow if i in concordance.columns]
             concordance = concordance[outshow]
 
             text = concordance.to_string()
+            #match_line = concordance.loc[filename, s]
 
             cursor_line_pos = 0
             if not text:
                 return
 
-            TextBox(self.scr, data=text, title=self.location_string(yp, xp), cursor_line_pos=cursor_line_pos)()
+            TextBox(self.scr,
+                    data=text,
+                    title=self.location_string(yp, xp),
+                    cursor_line_pos=cursor_line_pos,
+                    match_line=match_line)()
             self.resize()
 
 
@@ -926,7 +948,6 @@ class Viewer(object):
         """Create (y,x) col_label string. Max 30% of screen width. (y,x) is
         padded to the max possible length it could be. Label string gets
         trunc_char appended if it's longer than the allowed width.
-
         """
         yx_str = " ({},{}) "
         label_str = "{},{}"
@@ -1220,7 +1241,7 @@ class TextBox(object):
         self.scr = scr
         self.data = data
         self.title = title
-        self.match_line = match_line
+        self.match_line = match_line+1
         self.cursor_line_pos = cursor_line_pos # where we should start the cursor
         self.tdata = []    # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
@@ -1285,11 +1306,15 @@ class TextBox(object):
     def scroll_down(self):
         if self.box_height - 3 + self.hid_rows <= len(self.tdata):
             self.hid_rows += 1
+            self.match_line -= 1
         self.hid_rows = min(len(self.tdata), self.hid_rows)
 
     def scroll_up(self):
+        orig = self.hid_rows
         self.hid_rows -= 1
         self.hid_rows = max(0, self.hid_rows)
+        if orig != self.hid_rows:
+            self.match_line += 1
 
     def scroll_left(self):
         self.hid_cols -= 1
@@ -1297,7 +1322,7 @@ class TextBox(object):
 
     def scroll_right(self):
         self.hid_cols += 1
-        self.hid_cols min(self.longest_row, self.cols)
+        self.hid_cols = min(self.longest_row, self.cols)
 
     def move_to_starting_pos(self):
         #todo
@@ -1308,11 +1333,22 @@ class TextBox(object):
 
     def display(self):
         self.win.erase()
-        addstr(self.win, 1, 1, self.title[:self.term_cols - 3],
-               curses.A_STANDOUT)
-        visible_rows = self.tdata[self.hid_rows:self.hid_rows +
-                                  self.nlines]
-        addstr(self.win, 2, 1, '\n '.join(visible_rows))
+        # add header
+        addstr(self.win, 1, 1, self.title[:self.term_cols - 3], curses.A_STANDOUT)
+        num_hidden = self.hid_rows
+        # get just the showable list of rows
+        visible_rows = self.tdata[num_hidden:self.hid_rows+ self.nlines]
+        # add all of these
+        if -1 < self.match_line < len(visible_rows):
+            start = visible_rows[:self.match_line]
+            match = visible_rows[self.match_line]
+            end = visible_rows[self.match_line+1:]
+            addstr(self.win, 2, 1, '\n '.join(start))
+            addstr(self.win, 2+len(start), 1, match, curses.A_REVERSE)
+            addstr(self.win, 2+len(start)+1, 1, '\n '.join(end))
+        else:
+            addstr(self.win, 2, 1, '\n '.join(visible_rows))
+
         self.win.box()
         self.win.refresh()
 
@@ -1673,10 +1709,10 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
         if persist:
             pad_content = []
             try:
-                height,width = stdscr.getmaxyx()
+                height, width = stdscr.getmaxyx()
             except:
                 stdscr = curses.initscr()
-                height,width = stdscr.getmaxyx()
+                height, width = stdscr.getmaxyx()
 
             for x in range(height):
                 cont = stdscr.instr(x, 0).decode('utf-8')
