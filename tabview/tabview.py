@@ -23,11 +23,12 @@ from operator import itemgetter
 from subprocess import Popen, PIPE
 from textwrap import wrap
 import unicodedata
-import shlex
 
 
 def colorama_data(lines, conc_data):
-    """take a list of strings for printing, and add ansi colors"""
+    """
+    take a list of strings for printing, and add ansi colors
+    """
     regex = re.compile(r'^\s*([0-9]+)')
     import colorama
     from colorama import Fore, Back, Style, init
@@ -36,7 +37,6 @@ def colorama_data(lines, conc_data):
         return lines
 
     lines_to_print = []
-    from colorama import Fore, Back, Style, init
 
     init(autoreset=True)
     # for each concordance line
@@ -47,7 +47,6 @@ def colorama_data(lines, conc_data):
         if not s:
             continue
         num = s.group(1)
-        #print(num)
         # get dict of style and colour for line
         gotnums = conc_data.get(int(num), {})
         highstr = ''
@@ -65,40 +64,24 @@ def colorama_data(lines, conc_data):
         lines_to_print.append(highstr)
     return '\n'.join(lines_to_print)
 
-if sys.version_info.major < 3:
-    # Python 2.7 shim
-    str = unicode  # noqa
 
-    def KEY_CTRL(key):
-        return curses.ascii.ctrl(bytes(key))
+# Python 3 stuff
+basestring = str
+file = io.FileIO
 
-    def addstr(*args):
-        scr, args = args[0], list(args[1:])
-        x = 2 if len(args) > 2 else 0
-        args[x] = args[x].encode(sys.stdout.encoding)
-        return scr.addstr(*args)
 
-    def insstr(*args):
-        scr, args = args[0], list(args[1:])
-        x = 2 if len(args) > 2 else 0
-        args[x] = args[x].encode(sys.stdout.encoding)
-        return scr.insstr(*args)
+def KEY_CTRL(key):
+    return curses.ascii.ctrl(key)
 
-else:
-    basestring = str
-    file = io.FileIO
 
-    # Python 3 wrappers
-    def KEY_CTRL(key):
-        return curses.ascii.ctrl(key)
+def addstr(*args):
+    scr, args = args[0], args[1:]
+    return scr.addstr(*args)
 
-    def addstr(*args):
-        scr, args = args[0], args[1:]
-        return scr.addstr(*args)
 
-    def insstr(*args):
-        scr, args = args[0], args[1:]
-        return scr.insstr(*args)
+def insstr(*args):
+    scr, args = args[0], args[1:]
+    return scr.insstr(*args)
 
 
 class ReloadException(Exception):
@@ -114,6 +97,7 @@ class ReloadException(Exception):
 class QuitException(Exception):
     pass
 
+
 class MaybeTruncatedString(str):
 
     def __new__(self, s, width, trunc_char, trunc_left=False, background=False, colgap=False):
@@ -122,7 +106,7 @@ class MaybeTruncatedString(str):
 
         if len(s) > width:
             if trunc_left:
-                s = s[-width+1:]
+                s = s[-width:]
                 s = trunc_char + s
             else:
                 s = s[:width-1]
@@ -132,6 +116,7 @@ class MaybeTruncatedString(str):
             s += ' ' * colgap
 
         return str.__new__(self, s)
+
 
 class Viewer(object):
     """The actual CSV viewer class.
@@ -153,8 +138,9 @@ class Viewer(object):
         self.data = args[1]['data']
         self.header_offset_orig = 4
         self.align_right = kwargs.get('align_right', False)
+        self.trunc_left = kwargs.get('trunc_left', False)
         self.df = kwargs.get('df', False)
-        self.reference = getattr(self.df, 'reference', self.df.copy())
+        self.reference = kwargs.get('reference', False)
         self.header = args[1]['header']
         self.index = args[1].get('index', False)
         self.index_depth = kwargs.get('index_depth')
@@ -181,8 +167,6 @@ class Viewer(object):
             self.trunc_char = kwargs.get('trunc_char')
         except (UnicodeDecodeError, UnicodeError):
             self.trunc_char = '>'
-
-        self.trunc_left = kwargs.get('trunc_left')
 
         self.x, self.y = 0, 0
         self.win_x, self.win_y = 0, 0
@@ -231,7 +215,6 @@ class Viewer(object):
                                for i, j in info])
         TextBox(self.scr, data=display)()
         self.resize()
-
 
     def _is_num(self, cell):
         try:
@@ -990,7 +973,6 @@ class Viewer(object):
         addstr(self.scr, "  " + s, curses.A_NORMAL)
 
         # Print a divider line --- moved to below header
-        #self.scr.hline(1, 0, curses.ACS_HLINE, self.max_x)
 
         # Print the header if the correct offset is set
         if self.header_offset == self.header_offset_orig:
@@ -1022,7 +1004,6 @@ class Viewer(object):
 
                 self.background = False
                 back = False
-
 
                 # check if it's part of the index
                 bold = isinstance(self.index_depth, int) and x < self.index_depth
@@ -1072,7 +1053,6 @@ class Viewer(object):
                     and not selected:
                     s = ''
 
-
                 if yc == self.max_y - 1 and x == self.vis_columns - 1:
                     # Prevents a curses error when filling in the bottom right
                     # character
@@ -1092,7 +1072,6 @@ class Viewer(object):
                         pass
 
         self.scr.refresh()
-        #self.header_offset -= 2
 
     def strpad(self, s, width, align_right, trunc_left=False):
         """pads cell content, left or right, depending on self.align_right"""
@@ -1112,7 +1091,9 @@ class Viewer(object):
         return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left, background=self.background, colgap=self.column_gap)
 
     def hdrstr(self, x, width, align_right):
-        "Format the content of the requested header for display"
+        """
+        Format the content of the requested header for display
+        """
         if len(self.header) <= x:
             s = ""
         else:
@@ -1120,7 +1101,9 @@ class Viewer(object):
         return self.strpad(s, width, align_right)
 
     def cellstr(self, y, x, width, align_right, trunc_left=False):
-        "Format the content of the requested cell for display"
+        """
+        Format the content of the requested cell for display
+        """
         if len(self.data) <= y or len(self.data[y]) <= x:
             s = ""
         else:
@@ -1236,13 +1219,13 @@ class TextBox(object):
     """Display a scrollable text box in the bottom half of the screen.
 
     """
-    def __init__(self, scr, data='', title="", cursor_line_pos=0, match_line=None):
+    def __init__(self, scr, data='', title="", cursor_line_pos=0, match_line=-1):
         self._running = False
         self.scr = scr
         self.data = data
         self.title = title
         self.match_line = match_line+1
-        self.cursor_line_pos = cursor_line_pos # where we should start the cursor
+        self.cursor_line_pos = cursor_line_pos  # where we should start the cursor
         self.tdata = []    # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
         self.hid_cols = 0
@@ -1351,6 +1334,7 @@ class TextBox(object):
 
         self.win.box()
         self.win.refresh()
+
 
 def csv_sniff(data, enc):
     """Given a list, sniff the dialect of the data and return it.
@@ -1603,6 +1587,7 @@ def main(stdscr, *args, **kwargs):
         pass
     Viewer(stdscr, *args, **kwargs).run()
 
+
 def get_index_depth(data, freeze):
     if freeze:
         return freeze
@@ -1616,6 +1601,7 @@ def get_index_depth(data, freeze):
     except ImportError:
         return 1
     return False
+
 
 def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
          trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
@@ -1646,15 +1632,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                    delimiter detection doesn't work. None => automatic
 
     """
-    if sys.version_info.major < 3:
-        try:
-            lc_all = locale.getlocale(locale.LC_ALL)
-            locale.setlocale(locale.LC_ALL, '')
-        except:
-            lc_all = None
-    else:
-        lc_all = None
-
+    lc_all = None
     stdscr = curses.initscr()
 
     try:
