@@ -437,13 +437,15 @@ class Viewer(object):
         """
         Get the concordance line related to a cell
         """
-        #raise Exception(concordance.iloc[0])
         import pandas as pd
         conc = pd.DataFrame(concordance).astype(object)
         conc = conc[conc['file'] == filename]
         conc = conc[conc['s'].astype(int) == int(s)]
         conc = conc[conc['match'].str.strip() == predict]
-        return conc.index[0]
+        try:
+            return conc.index[0]
+        except IndexError:
+            return
 
     def show_cell(self):
         "Display current cell in a pop-up window"
@@ -456,8 +458,10 @@ class Viewer(object):
             # cell content
             filename = self.data[self.y][0]
             s = self.data[self.y][1]
-            target = self.header[xp]
-            query = self.data[self.y][self.x]
+            col_name = self.header[xp]
+            target = col_name if col_name in self.reference.columns else 'w'
+            #  query = self.data[self.y][self.x]
+            query = self.header[xp]
             word = self.data[self.y][3]
             show = ['w'] + [target] if target != 'w' else ['w']
             predict = query if show == ['w'] else '{}/{}'.format(word, query)
@@ -465,7 +469,10 @@ class Viewer(object):
             if target not in outshow:
                 outshow.append(target)
 
-            concordance = self.df.concordance(target, query, show)
+            # todo: fix this hack, it should not be regex
+            query = '^{}$'.format(query)
+
+            concordance = self.reference.concordance(target, query, show)
             match_line = self.find_match_line(concordance, filename, s, predict)
 
             outshow = [i for i in outshow if i in concordance.columns]
@@ -1224,7 +1231,7 @@ class TextBox(object):
         self.scr = scr
         self.data = data
         self.title = title
-        self.match_line = match_line+1
+        self.match_line = match_line+1 if match_line is not None else -1
         self.cursor_line_pos = cursor_line_pos  # where we should start the cursor
         self.tdata = []    # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
@@ -1670,7 +1677,8 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                                index_depth=index_depth,
                                colours=colours,
                                trunc_left=trunc_left,
-                               df=df)
+                               df=df,
+                               **kwargs)
 
             except (QuitException, KeyboardInterrupt):
                 return 0
