@@ -266,7 +266,7 @@ class Viewer(object):
                 cws: list of column widths
 
         """
-        if cws is None or len(self.data[0]) != len(cws):
+        if not cws:
             self._get_column_widths(cw)
         else:
             self.column_width = cws
