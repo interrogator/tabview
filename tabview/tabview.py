@@ -5,33 +5,34 @@
   Based on code contributed by A.M. Kuchling <amk at amk dot ca>
 
 """
-from __future__ import print_function, division, unicode_literals
-
 import csv
-import _curses
-import curses
-import curses.ascii
 import locale
-import io
 import os
 import re
 import string
 import sys
-from collections import Counter
-from curses.textpad import Textbox
-from operator import itemgetter
-from subprocess import Popen, PIPE
-from textwrap import wrap
 import unicodedata
+from collections import Counter
+from operator import itemgetter
+from subprocess import PIPE, Popen
+from textwrap import wrap
+
+import _curses
+import curses
+import curses.ascii
+import io
+import numpy as np
+import pandas as pd
+from colorama import Back, Fore, Style, init
+from curses.textpad import Textbox
+from pandas import option_context
 
 
 def colorama_data(lines, conc_data):
     """
     take a list of strings for printing, and add ansi colors
     """
-    regex = re.compile(r'^\s*([0-9]+)')
-    import colorama
-    from colorama import Fore, Back, Style, init
+    regex = re.compile(r"^\s*([0-9]+)")
 
     if not conc_data:
         return lines
@@ -49,12 +50,12 @@ def colorama_data(lines, conc_data):
         num = s.group(1)
         # get dict of style and colour for line
         gotnums = conc_data.get(int(num), {})
-        highstr = ''
+        highstr = ""
         if gotnums:
             for sty, col in gotnums.items():
-                if col.upper() in ['DIM', 'NORMAL', 'BRIGHT', 'RESET_ALL']:
+                if col.upper() in ["DIM", "NORMAL", "BRIGHT", "RESET_ALL"]:
                     thing_to_color = Style
-                elif sty == 'Back':
+                elif sty == "Back":
                     thing_to_color = Back
                 else:
                     thing_to_color = Fore
@@ -62,12 +63,7 @@ def colorama_data(lines, conc_data):
         highstr += line + Style.RESET_ALL
 
         lines_to_print.append(highstr)
-    return '\n'.join(lines_to_print)
-
-
-# Python 3 stuff
-basestring = str
-file = io.FileIO
+    return "\n".join(lines_to_print)
 
 
 def KEY_CTRL(key):
@@ -85,8 +81,7 @@ def insstr(*args):
 
 
 class ReloadException(Exception):
-    def __init__(self, start_pos, column_width, column_gap, column_widths,
-                 search_str):
+    def __init__(self, start_pos, column_width, column_gap, column_widths, search_str):
         self.start_pos = start_pos
         self.column_width_mode = column_width
         self.column_gap = column_gap
@@ -99,8 +94,9 @@ class QuitException(Exception):
 
 
 class MaybeTruncatedString(str):
-
-    def __new__(self, s, width, trunc_char, trunc_left=False, background=False, colgap=False):
+    def __new__(
+        self, s, width, trunc_char, trunc_left=False, background=False, colgap=False
+    ):
 
         self.original = s
 
@@ -109,11 +105,11 @@ class MaybeTruncatedString(str):
                 s = s[-width:]
                 s = trunc_char + s
             else:
-                s = s[:width-1]
+                s = s[: width - 1]
                 s += trunc_char
 
         if background:
-            s += ' ' * colgap
+            s += " " * colgap
 
         return str.__new__(self, s)
 
@@ -129,27 +125,27 @@ class Viewer(object):
             search_str, double_width
 
     """
+
     def __init__(self, *args, **kwargs):
         # Fix for python curses resize bug:
         # http://bugs.python.org/issue2675
-        os.unsetenv('LINES')
-        os.unsetenv('COLUMNS')
+        os.unsetenv("LINES")
+        os.unsetenv("COLUMNS")
         self.scr = args[0]
-        self.data = args[1]['data']
+        self.data = args[1]["data"]
         self.header_offset_orig = 4
-        self.align_right = kwargs.get('align_right', False)
-        self.trunc_left = kwargs.get('trunc_left', False)
-        self.df = kwargs.get('df', False)
-        self.reference = kwargs.get('reference', False)
-        self.header = args[1]['header']
-        self.index = args[1].get('index', False)
-        self.index_depth = kwargs.get('index_depth')
+        self.align_right = kwargs.get("align_right", False)
+        self.trunc_left = kwargs.get("trunc_left", False)
+        self.df = kwargs.get("df", False)
+        self.reference = kwargs.get("reference", False)
+        self.header = args[1]["header"]
+        self.index = args[1].get("index", False)
+        self.index_depth = kwargs.get("index_depth")
         self.prev_key = False
         self.background = False
         self.header_offset = self.header_offset_orig
         self.num_data_columns = len(self.header)
-        if len(self.data) > 1 and \
-                not any(self._is_num(cell) for cell in self.header):
+        if len(self.data) > 1 and not any(self._is_num(cell) for cell in self.header):
             del self.data[0]
             self.header_offset = self.header_offset_orig
         else:
@@ -157,37 +153,38 @@ class Viewer(object):
             # If any of the header line cells are all digits, assume that the
             # first line is NOT a header
             self.header_offset = self.header_offset_orig - 1
-        self._init_double_width(kwargs.get('double_width'))
-        self.column_width_mode = kwargs.get('column_width')
-        self.column_gap = kwargs.get('column_gap')
-        self._init_column_widths(kwargs.get('column_width'),
-                                 kwargs.get('column_widths'))
+        self._init_double_width(kwargs.get("double_width"))
+        self.column_width_mode = kwargs.get("column_width")
+        self.column_gap = kwargs.get("column_gap")
+        self._init_column_widths(
+            kwargs.get("column_width"), kwargs.get("column_widths")
+        )
         try:
-            kwargs.get('trunc_char').encode(sys.stdout.encoding or 'utf-8')
-            self.trunc_char = kwargs.get('trunc_char')
+            kwargs.get("trunc_char").encode(sys.stdout.encoding or "utf-8")
+            self.trunc_char = kwargs.get("trunc_char")
         except (UnicodeDecodeError, UnicodeError):
-            self.trunc_char = '>'
+            self.trunc_char = ">"
 
         self.x, self.y = 0, 0
         self.win_x, self.win_y = 0, 0
         self.max_y, self.max_x = 0, 0
         self.num_columns = 0
         self.vis_columns = 0
-        self.init_search = self.search_str = kwargs.get('search_str')
+        self.init_search = self.search_str = kwargs.get("search_str")
         self._search_win_open = 0
         self.modifier = str()
         self.define_keys()
-        self.colours = kwargs.get('colours')
+        self.colours = kwargs.get("colours")
         self.colourdict = self._make_colour_dict()
         self.resize()
         self.display()
         # Handle goto initial position (either (y,x), [y] or y)
         try:
-            self.goto_y(kwargs.get('start_pos')[0])
+            self.goto_y(kwargs.get("start_pos")[0])
         except TypeError:
-            self.goto_y(kwargs.get('start_pos'))
+            self.goto_y(kwargs.get("start_pos"))
         try:
-            self.goto_x(kwargs.get('start_pos')[1])
+            self.goto_x(kwargs.get("start_pos")[1])
         except (IndexError, TypeError):
             pass
 
@@ -199,20 +196,22 @@ class Viewer(object):
         xp = self.x + self.win_x
         location = self.location_string(yp, xp)
 
-        def sizeof_fmt(num, suffix='B'):
-            for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+        def sizeof_fmt(num, suffix="B"):
+            for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
                 if abs(num) < 1024.0:
                     return "{:3.1f}{}{}".format(num, unit, suffix)
                 num /= 1024.0
-            return "{:.1f}{}{}".format(num, 'Yi', suffix)
+            return "{:.1f}{}{}".format(num, "Yi", suffix)
+
         size = sizeof_fmt(sys.getsizeof(self.data))
         rows_cols = str((len(self.data), self.num_data_columns))
-        info = [("Filename/Data Info:", fn),
-                ("Current Location:", location),
-                ("Total Rows/Columns:", rows_cols),
-                ("Data Size:", size)]
-        display = "\n\n".join(["{:<20}{:<}".format(i, j)
-                               for i, j in info])
+        info = [
+            ("Filename/Data Info:", fn),
+            ("Current Location:", location),
+            ("Total Rows/Columns:", rows_cols),
+            ("Data Size:", size),
+        ]
+        display = "\n\n".join(["{:<20}{:<}".format(i, j) for i, j in info])
         TextBox(self.scr, data=display)()
         self.resize()
 
@@ -245,8 +244,18 @@ class Viewer(object):
             return {}
 
         import curses
-        colours = ["reset", "black", "red", "green", "yellow",
-                   "blue", "magenta", "cyan", "white"]
+
+        colours = [
+            "reset",
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+        ]
         dct = {}
 
         i = 1
@@ -276,15 +285,15 @@ class Viewer(object):
         scw = self.column_width
         sid = self.index_depth
         indbits = scw[:sid] if x > sid else scw[:x]
-        cols = indbits + scw[self.win_x:self.win_x + x][sid:]
+        cols = indbits + scw[self.win_x : self.win_x + x][sid:]
         xp = sum(cols) + x * self.column_gap
-        #xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
+        # xp = sum(scw[self.win_x:self.win_x + x]) + x * self.column_gap
         w = max(0, min(self.max_x - xp, scw[self.win_x + x]))
         if isinstance(scw, list):
             if index:
                 w = max(0, min(self.max_x - xp, scw[x]))
             else:
-                w = max(0, min(self.max_x - xp, scw[x+self.win_x]))
+                w = max(0, min(self.max_x - xp, scw[x + self.win_x]))
         return xp, w
 
     def quit(self):
@@ -292,9 +301,13 @@ class Viewer(object):
 
     def reload(self):
         start_pos = (self.y + self.win_y + 1, self.x + self.win_x + 1)
-        raise ReloadException(start_pos, self.column_width_mode,
-                              self.column_gap, self.column_width,
-                              self.search_str)
+        raise ReloadException(
+            start_pos,
+            self.column_width_mode,
+            self.column_gap,
+            self.column_width,
+            self.search_str,
+        )
 
     def consume_modifier(self, default=1):
         m = int(self.modifier) if len(self.modifier) else default
@@ -374,7 +387,7 @@ class Viewer(object):
         self.save_y, self.save_x = self.y + self.win_y, self.x + self.win_x
 
     def goto_mark(self):
-        if hasattr(self, 'save_y'):
+        if hasattr(self, "save_y"):
             self.goto_yx(self.save_y + 1, self.save_x + 1)
 
     def home(self):
@@ -382,8 +395,11 @@ class Viewer(object):
 
     def goto_y(self, y):
         y = max(min(len(self.data), y), 1)
-        if self.win_y < y <= self.win_y + \
-                (self.max_y - self.header_offset - self._search_win_open):
+        if (
+            self.win_y
+            < y
+            <= self.win_y + (self.max_y - self.header_offset - self._search_win_open)
+        ):
             # same screen, change y appropriately.
             self.y = y - 1 - self.win_y
         elif y <= self.win_y:
@@ -392,10 +408,8 @@ class Viewer(object):
             self.win_y = y - 1
         else:
             # going forward
-            self.win_y = y - (self.max_y - self.header_offset -
-                              self._search_win_open)
-            self.y = (self.max_y - self.header_offset -
-                      self._search_win_open) - 1
+            self.win_y = y - (self.max_y - self.header_offset - self._search_win_open)
+            self.y = (self.max_y - self.header_offset - self._search_win_open) - 1
 
     def goto_row(self):
         m = self.consume_modifier(len(self.data))
@@ -438,10 +452,11 @@ class Viewer(object):
         Get the concordance line related to a cell
         """
         import pandas as pd
+
         conc = pd.DataFrame(concordance).astype(object)
-        conc = conc[conc['file'] == filename]
-        conc = conc[conc['s'].astype(int) == int(s)]
-        conc = conc[conc['match'].str.strip() == predict]
+        conc = conc[conc["file"] == filename]
+        conc = conc[conc["s"].astype(int) == int(s)]
+        conc = conc[conc["match"].str.strip() == predict]
         try:
             return conc.index[0]
         except IndexError:
@@ -452,46 +467,50 @@ class Viewer(object):
         yp = self.y + self.win_y
         xp = self.x + self.win_x
 
-        is_conc = all(i in self.df.columns for i in ['left', 'match', 'right'])
+        is_conc = all(i in self.df.columns for i in ["left", "match", "right"])
 
         if not is_conc:
             # cell content
             filename = self.data[self.y][0]
             s = self.data[self.y][1]
             col_name = self.header[xp]
-            target = col_name if col_name in self.reference.columns else 'w'
-            #  query = self.data[self.y][self.x]
-            query = self.header[xp]
+            target = col_name if col_name in self.reference.columns else "w"
+            query = self.data[self.y][self.x]
+            # query = self.header[xp]
             word = self.data[self.y][3]
-            show = ['w'] + [target] if target != 'w' else ['w']
-            predict = query if show == ['w'] else '{}/{}'.format(word, query)
-            outshow = ['file', 's', 'left', 'match', 'right']#, 'speaker']
+            show = ["w"] + [target] if target != "w" else ["w"]
+            predict = query if show == ["w"] else "{}/{}".format(word, query)
+            outshow = ["file", "s", "left", "match", "right"]  # , 'speaker']
             if target not in outshow:
                 outshow.append(target)
 
-            # todo: fix this hack, it should not be regex
-            query = '^{}$'.format(query)
+            matches = getattr(self.df.just, target)(
+                query, exact_match=True, case=False, regex=False
+            )
 
-            concordance = self.reference.concordance(target, query, show)
+            concordance = matches.conc(show=show, reference=self.reference)
+
             match_line = self.find_match_line(concordance, filename, s, predict)
 
             outshow = [i for i in outshow if i in concordance.columns]
             concordance = concordance[outshow]
 
-            text = concordance.to_string()
-            #match_line = concordance.loc[filename, s]
+            with option_context("display.max_colwidth", -1):
+                text = concordance.to_string()
+            # match_line = concordance.loc[filename, s]
 
             cursor_line_pos = 0
             if not text:
                 return
 
-            TextBox(self.scr,
-                    data=text,
-                    title=self.location_string(yp, xp),
-                    cursor_line_pos=cursor_line_pos,
-                    match_line=match_line)()
+            TextBox(
+                self.scr,
+                data=text,
+                title=self.location_string(yp, xp),
+                cursor_line_pos=cursor_line_pos,
+                match_line=match_line,
+            )()
             self.resize()
-
 
     def _search_validator(self, ch):
         """Fix Enter and backspace for textbox.
@@ -564,10 +583,12 @@ class Viewer(object):
             else:
                 # Skip back to the top if at the end of the data
                 yp = xp = 0
-        search_order = [self._search_cur_line_r,
-                        self._search_next_line_to_end,
-                        self._search_next_line_from_beg,
-                        self._search_cur_line_l]
+        search_order = [
+            self._search_cur_line_r,
+            self._search_next_line_to_end,
+            self._search_next_line_from_beg,
+            self._search_cur_line_l,
+        ]
         for search in search_order:
             y, x, res = search(data, yp, xp)
             if res is True:
@@ -615,7 +636,7 @@ class Viewer(object):
     def _search_next_line_to_end(self, data, yp, xp):
         """ Search from next line to the end """
         res = done = False
-        for y, line in enumerate(data[yp + 1:]):
+        for y, line in enumerate(data[yp + 1 :]):
             for x, item in enumerate(line):
                 if self.search_str in str(item).lower():
                     done = True
@@ -642,9 +663,8 @@ class Viewer(object):
 
     def help(self):
         help_txt = readme()
-        idx = help_txt.index('Keybindings:\n')
-        help_txt = [i.replace('**', '') for i in help_txt[idx:]
-                    if '===' not in i]
+        idx = help_txt.index("Keybindings:\n")
+        help_txt = [i.replace("**", "") for i in help_txt[idx:] if "===" not in i]
         TextBox(self.scr, data="".join(help_txt), title="Help")()
         self.resize()
 
@@ -677,15 +697,17 @@ class Viewer(object):
         self.recalculate_layout()
 
     def column_width_all_down(self):
-        self.column_width = [max(1, self.column_width[i] -
-                                 max(1, int(self.column_width[i] * 0.2)))
-                             for i in range(0, self.num_data_columns)]
+        self.column_width = [
+            max(1, self.column_width[i] - max(1, int(self.column_width[i] * 0.2)))
+            for i in range(0, self.num_data_columns)
+        ]
         self.recalculate_layout()
 
     def column_width_all_up(self):
-        self.column_width = [max(1, self.column_width[i] +
-                                 max(1, int(self.column_width[i] * 0.2)))
-                             for i in range(0, self.num_data_columns)]
+        self.column_width = [
+            max(1, self.column_width[i] + max(1, int(self.column_width[i] * 0.2)))
+            for i in range(0, self.num_data_columns)
+        ]
         self.recalculate_layout()
 
     def column_width_down(self):
@@ -700,14 +722,17 @@ class Viewer(object):
 
     def sort_by_column_numeric(self):
         xp = self.x + self.win_x
-        self.data = sorted(self.data, key=lambda x:
-                           self.float_string_key(itemgetter(xp)(x)))
+        self.data = sorted(
+            self.data, key=lambda x: self.float_string_key(itemgetter(xp)(x))
+        )
 
     def sort_by_column_numeric_reverse(self):
         xp = self.x + self.win_x
-        self.data = sorted(self.data, key=lambda x:
-                           self.float_string_key(itemgetter(xp)(x)),
-                           reverse=True)
+        self.data = sorted(
+            self.data,
+            key=lambda x: self.float_string_key(itemgetter(xp)(x)),
+            reverse=True,
+        )
 
     def sort_by_column(self):
         xp = self.x + self.win_x
@@ -719,12 +744,18 @@ class Viewer(object):
 
     def sort_by_column_natural(self):
         xp = self.x + self.win_x
-        self.data = sorted(self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp])
-        #self.data = self.sorted_nicely(self.data, itemgetter(xp self.index_depth))
+        self.data = sorted(
+            self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp]
+        )
+        # self.data = self.sorted_nicely(self.data, itemgetter(xp self.index_depth))
 
     def sort_by_column_natural_reverse(self):
         xp = self.x + self.win_x
-        self.data = sorted(self.data, key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp], reverse=True)
+        self.data = sorted(
+            self.data,
+            key=lambda i: int(i[xp]) if i[xp].isdigit() else i[xp],
+            reverse=True,
+        )
 
     def float_string_key(self, value):
         """Sort by data type first and by floating point value second,
@@ -746,10 +777,10 @@ class Viewer(object):
             self.column_width_mode = min(int(self.modifier), self.max_x)
             self.modifier = str()
         except ValueError:
-            if self.column_width_mode == 'mode':
-                self.column_width_mode = 'max'
+            if self.column_width_mode == "mode":
+                self.column_width_mode = "max"
             else:
-                self.column_width_mode = 'mode'
+                self.column_width_mode = "mode"
         self._get_column_widths(self.column_width_mode)
         self.recalculate_layout()
 
@@ -772,78 +803,77 @@ class Viewer(object):
         s = self.data[yp][xp]
         # Bail out if not running in X
         try:
-            os.environ['DISPLAY']
+            os.environ["DISPLAY"]
         except KeyError:
             return
-        for cmd in (['xclip', '-selection', 'clipboard'],
-                    ['xsel', '-i']):
+        for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "-i"]):
             try:
-                Popen(cmd, stdin=PIPE,
-                      universal_newlines=True).communicate(input=s)
+                Popen(cmd, stdin=PIPE, universal_newlines=True).communicate(input=s)
             except IOError:
                 pass
 
     def define_keys(self):
-        self.keys = {'j': self.down,
-                     'k': self.up,
-                     'h': self.left,
-                     'l': self.right,
-                     'J': self.page_down,
-                     'K': self.page_up,
-                     'm': self.mark,
-                     "'": self.goto_mark,
-                     'L': self.page_right,
-                     'H': self.page_left,
-                     'q': self.quit,
-                     'Q': self.quit,
-                     '$': self.line_end,
-                     '^': self.line_home,
-                     'g': self.home,
-                     'G': self.goto_row,
-                     '|': self.goto_col,
-                     '\n': self.show_cell,
-                     '/': self.search,
-                     'n': self.search_results,
-                     'p': self.search_results_prev,
-                     't': self.toggle_header,
-                     '-': self.column_gap_down,
-                     '+': self.column_gap_up,
-                     '<': self.column_width_all_down,
-                     '>': self.column_width_all_up,
-                     ',': self.column_width_down,
-                     '.': self.column_width_up,
-                     'a': self.sort_by_column_natural,
-                     'A': self.sort_by_column_natural_reverse,
-                     '#': self.sort_by_column_numeric,
-                     '@': self.sort_by_column_numeric_reverse,
-                     's': self.sort_by_column,
-                     'S': self.sort_by_column_reverse,
-                     'y': self.yank_cell,
-                     'r': self.reload,
-                     'c': self.toggle_column_width,
-                     'C': self.set_current_column_width,
-                     ']': self.skip_to_row_change,
-                     '[': self.skip_to_row_change_reverse,
-                     '}': self.skip_to_col_change,
-                     '{': self.skip_to_col_change_reverse,
-                     '?': self.help,
-                     curses.KEY_F1: self.help,
-                     curses.KEY_UP: self.up,
-                     curses.KEY_DOWN: self.down,
-                     curses.KEY_LEFT: self.left,
-                     curses.KEY_RIGHT: self.right,
-                     curses.KEY_HOME: self.line_home,
-                     curses.KEY_END: self.line_end,
-                     curses.KEY_PPAGE: self.page_up,
-                     curses.KEY_NPAGE: self.page_down,
-                     curses.KEY_IC: self.mark,
-                     curses.KEY_DC: self.goto_mark,
-                     curses.KEY_ENTER: self.show_cell,
-                     KEY_CTRL('a'): self.line_home,
-                     KEY_CTRL('e'): self.line_end,
-                     KEY_CTRL('l'): self.scr.redrawwin,
-                     KEY_CTRL('g'): self.show_info,
-                     }
+        self.keys = {
+            "j": self.down,
+            "k": self.up,
+            "h": self.left,
+            "l": self.right,
+            "J": self.page_down,
+            "K": self.page_up,
+            "m": self.mark,
+            "'": self.goto_mark,
+            "L": self.page_right,
+            "H": self.page_left,
+            "q": self.quit,
+            "Q": self.quit,
+            "$": self.line_end,
+            "^": self.line_home,
+            "g": self.home,
+            "G": self.goto_row,
+            "|": self.goto_col,
+            "\n": self.show_cell,
+            "/": self.search,
+            "n": self.search_results,
+            "p": self.search_results_prev,
+            "t": self.toggle_header,
+            "-": self.column_gap_down,
+            "+": self.column_gap_up,
+            "<": self.column_width_all_down,
+            ">": self.column_width_all_up,
+            ",": self.column_width_down,
+            ".": self.column_width_up,
+            "a": self.sort_by_column_natural,
+            "A": self.sort_by_column_natural_reverse,
+            "#": self.sort_by_column_numeric,
+            "@": self.sort_by_column_numeric_reverse,
+            "s": self.sort_by_column,
+            "S": self.sort_by_column_reverse,
+            "y": self.yank_cell,
+            "r": self.reload,
+            "c": self.toggle_column_width,
+            "C": self.set_current_column_width,
+            "]": self.skip_to_row_change,
+            "[": self.skip_to_row_change_reverse,
+            "}": self.skip_to_col_change,
+            "{": self.skip_to_col_change_reverse,
+            "?": self.help,
+            curses.KEY_F1: self.help,
+            curses.KEY_UP: self.up,
+            curses.KEY_DOWN: self.down,
+            curses.KEY_LEFT: self.left,
+            curses.KEY_RIGHT: self.right,
+            curses.KEY_HOME: self.line_home,
+            curses.KEY_END: self.line_end,
+            curses.KEY_PPAGE: self.page_up,
+            curses.KEY_NPAGE: self.page_down,
+            curses.KEY_IC: self.mark,
+            curses.KEY_DC: self.goto_mark,
+            curses.KEY_ENTER: self.show_cell,
+            KEY_CTRL("a"): self.line_home,
+            KEY_CTRL("e"): self.line_end,
+            KEY_CTRL("l"): self.scr.redrawwin,
+            KEY_CTRL("g"): self.show_info,
+        }
 
     def run(self):
         # Clear the screen and display the menu of keys
@@ -891,8 +921,7 @@ class Viewer(object):
     def resize(self):
         """Handle terminal resizing"""
         # Check if screen was re-sized (True or False)
-        resize = self.max_x == 0 or \
-            curses.is_term_resized(self.max_y, self.max_x)
+        resize = self.max_x == 0 or curses.is_term_resized(self.max_y, self.max_x)
         if resize is True:
             self.recalculate_layout()
             curses.resizeterm(self.max_y, self.max_x)
@@ -903,8 +932,9 @@ class Viewer(object):
 
         """
         width = cols = 0
-        while (x + cols) < self.num_data_columns \
-                and width + self.column_width[x + cols] <= self.max_x:
+        while (x + cols) < self.num_data_columns and width + self.column_width[
+            x + cols
+        ] <= self.max_x:
             width += self.column_width[x + cols] + self.column_gap
             cols += 1
         return max(1, cols)
@@ -915,8 +945,7 @@ class Viewer(object):
 
         """
         width = cols = 0
-        while x - cols >= 0 \
-                and width + self.column_width[x - cols] <= self.max_x:
+        while x - cols >= 0 and width + self.column_width[x - cols] <= self.max_x:
             width += self.column_width[x - cols] + self.column_gap
             cols += 1
         return max(1, cols)
@@ -944,21 +973,21 @@ class Viewer(object):
         max_y = str(len(self.data))
         max_x = str(len(self.data[0]))
         max_yx = yx_str.format(max_y, max_x)
-        y_cord = max(self.index, key=len) if self.index else '-'
+        y_cord = max(self.index, key=len) if self.index else "-"
         max_label = label_str.format(y_cord, max(self.header, key=len))
         if self.header_offset != self.header_offset_orig:
             # Hide column labels if header row disabled
             label = ""
-            max_width = min(int(self.max_x * .3), len(max_yx))
+            max_width = min(int(self.max_x * 0.3), len(max_yx))
         else:
-            y_cord = self.index[yp] if self.index else '-'
+            y_cord = self.index[yp] if self.index else "-"
             label = label_str.format(y_cord, self.header[xp])
-            max_width = min(int(self.max_x * .3), len(max_yx + max_label))
+            max_width = min(int(self.max_x * 0.3), len(max_yx + max_label))
         yx = yx_str.format(yp + 1, xp + 1)
         pad = " " * (max_width - len(yx) - len(label))
         every = "{}{}{}".format(yx, label, pad)
         if len(every) > max_width:
-            every = every[:max_width - 1] + self.trunc_char
+            every = every[: max_width - 1] + self.trunc_char
         return every
 
     def display(self):
@@ -985,9 +1014,13 @@ class Viewer(object):
         if self.header_offset == self.header_offset_orig:
             self.scr.move(2, 0)
             self.scr.clrtoeol()
-            for x in range(0, self.vis_columns-self.index_depth):
+            for x in range(0, self.vis_columns - self.index_depth):
                 is_index = isinstance(self.index_depth, int) and x < self.index_depth
-                align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
+                align_right = (
+                    self.align_right[x]
+                    if isinstance(self.align_right, list)
+                    else self.align_right
+                )
                 xc, wc = self.column_xw(x, index=is_index)
                 if is_index:
                     s = self.hdrstr(x, wc, align_right)
@@ -1000,14 +1033,13 @@ class Viewer(object):
 
         # Print the table data
         # for each row
-        for y in range(0, self.max_y - self.header_offset -
-                       self._search_win_open):
+        for y in range(0, self.max_y - self.header_offset - self._search_win_open):
             yc = y + self.header_offset
             self.scr.move(yc, 0)
             self.scr.clrtoeol()
 
             # for each col
-            for x in range(0, self.vis_columns-self.index_depth):
+            for x in range(0, self.vis_columns - self.index_depth):
 
                 self.background = False
                 back = False
@@ -1017,8 +1049,16 @@ class Viewer(object):
                 # check if this cell is currently selected
                 selected = x == self.x and y == self.y
 
-                align_right = self.align_right[x] if isinstance(self.align_right, list) else self.align_right
-                trunc_left = self.trunc_left[x] if isinstance(self.trunc_left, list) else self.trunc_left
+                align_right = (
+                    self.align_right[x]
+                    if isinstance(self.align_right, list)
+                    else self.align_right
+                )
+                trunc_left = (
+                    self.trunc_left[x]
+                    if isinstance(self.trunc_left, list)
+                    else self.trunc_left
+                )
 
                 # determine colouring
                 if selected:
@@ -1031,8 +1071,8 @@ class Viewer(object):
 
                     if self.colours:
                         colour_data = self.colours.get(int(y), {})
-                        fore = colour_data.get('Fore', "reset")
-                        back = colour_data.get('Back', "reset")
+                        fore = colour_data.get("Fore", "reset")
+                        back = colour_data.get("Back", "reset")
                         t = self.colourdict.get((fore, back), False)
                         if t is not False:
                             attr = curses.color_pair(t)
@@ -1044,21 +1084,34 @@ class Viewer(object):
                 # if the cell is part of the index,
                 # could add an option here to freeze index or now
                 if bold:
-                    s = self.cellstr(y + self.win_y, x, wc, align_right, trunc_left=trunc_left)
+                    s = self.cellstr(
+                        y + self.win_y, x, wc, align_right, trunc_left=trunc_left
+                    )
                 else:
-                    s = self.cellstr(y + self.win_y, x + self.win_x, wc, align_right, trunc_left=trunc_left)
+                    s = self.cellstr(
+                        y + self.win_y,
+                        x + self.win_x,
+                        wc,
+                        align_right,
+                        trunc_left=trunc_left,
+                    )
 
-                if back != 'default':
+                if back != "default":
                     self.background = back
 
                 # if the text of the line above is the same as this line
                 # and if we're in the index, hide the text
                 # right now, this behaves poorly when text is truncated
-                if y > 0 \
-                    and bold \
-                    and s.original == self.cellstr(y + self.win_y -1, x + self.win_x, wc, align_right).original \
-                    and not selected:
-                    s = ''
+                if (
+                    y > 0
+                    and bold
+                    and s.original
+                    == self.cellstr(
+                        y + self.win_y - 1, x + self.win_x, wc, align_right
+                    ).original
+                    and not selected
+                ):
+                    s = ""
 
                 if yc == self.max_y - 1 and x == self.vis_columns - 1:
                     # Prevents a curses error when filling in the bottom right
@@ -1072,8 +1125,8 @@ class Viewer(object):
                 # this is perhaps drawing and redrawing when it should not
                 if bold and self.index_depth - 1 == x:
                     try:
-                        self.scr.vline(2, xc+wc+1, ord("|"), self.max_y-1)
-                        self.scr.vline(2, xc+wc+2, ord(" "), self.max_y-1)
+                        self.scr.vline(2, xc + wc + 1, ord("|"), self.max_y - 1)
+                        self.scr.vline(2, xc + wc + 2, ord(" "), self.max_y - 1)
                     # _curses.error
                     except:
                         pass
@@ -1085,17 +1138,24 @@ class Viewer(object):
 
         if width < 1:
             return str()
-        if '\n' in str(s):
-            s = str(s).replace('\n', '\\n')
+        if "\n" in str(s):
+            s = str(s).replace("\n", "\\n")
 
         # simplified this to use python string methods
-        extra_wide = len([c for c in s if unicodedata.east_asian_width(c) == 'W'])
+        extra_wide = len([c for c in s if unicodedata.east_asian_width(c) == "W"])
         if align_right:
-            s = str(s).rjust(width + extra_wide, ' ')
+            s = str(s).rjust(width + extra_wide, " ")
         else:
-            s = str(s).ljust(width + extra_wide, ' ')
+            s = str(s).ljust(width + extra_wide, " ")
 
-        return MaybeTruncatedString(s, width, self.trunc_char, trunc_left=trunc_left, background=self.background, colgap=self.column_gap)
+        return MaybeTruncatedString(
+            s,
+            width,
+            self.trunc_char,
+            trunc_left=trunc_left,
+            background=self.background,
+            colgap=self.column_gap,
+        )
 
     def hdrstr(self, x, width, align_right):
         """
@@ -1124,17 +1184,16 @@ class Viewer(object):
         Returns: [len of col 1, len of col 2, ....]
 
         """
-        if width == 'max':
+        if width == "max":
             self.column_width = self._get_column_widths_max(self.data)
-        elif width == 'mode':
+        elif width == "mode":
             self.column_width = self._get_column_widths_mode(self.data)
         else:
             try:
                 width = int(width)
             except (TypeError, ValueError):
                 width = 25
-            self.column_width = [width for i in
-                                 range(0, self.num_data_columns)]
+            self.column_width = [width for i in range(0, self.num_data_columns)]
 
     @staticmethod
     def __cell_len_dw(s):
@@ -1144,7 +1203,7 @@ class Viewer(object):
         """
         len = 0
         for c in s:
-            w = 2 if unicodedata.east_asian_width(c) == 'W' else 1
+            w = 2 if unicodedata.east_asian_width(c) == "W" else 1
             len += w
         return len
 
@@ -1191,8 +1250,7 @@ class Viewer(object):
 
         """
         d = zip(*d)
-        return [max(1, min(250, max(set(self._cell_len(j) for j in i))))
-                for i in d]
+        return [max(1, min(250, max(set(self._cell_len(j) for j in i)))) for i in d]
 
     def _skip_to_value_change(self, x_inc, y_inc):
         m = self.consume_modifier()
@@ -1202,9 +1260,13 @@ class Viewer(object):
             v = self.data[y][x]
             y += y_inc
             x += x_inc
-            while y >= 0 and y < len(self.data) \
-                    and x >= 0 and x < self.num_data_columns \
-                    and self.data[y][x] == v:
+            while (
+                y >= 0
+                and y < len(self.data)
+                and x >= 0
+                and x < self.num_data_columns
+                and self.data[y][x] == v
+            ):
                 y += y_inc
                 x += x_inc
             self.goto_yx(y + 1, x + 1)
@@ -1226,14 +1288,15 @@ class TextBox(object):
     """Display a scrollable text box in the bottom half of the screen.
 
     """
-    def __init__(self, scr, data='', title="", cursor_line_pos=0, match_line=-1):
+
+    def __init__(self, scr, data="", title="", cursor_line_pos=0, match_line=-1):
         self._running = False
         self.scr = scr
         self.data = data
         self.title = title
-        self.match_line = match_line+1 if match_line is not None else -1
+        self.match_line = match_line + 1 if match_line is not None else -1
         self.cursor_line_pos = cursor_line_pos  # where we should start the cursor
-        self.tdata = []    # transformed data
+        self.tdata = []  # transformed data
         self.hid_rows = 0  # number of hidden rows from the beginning
         self.hid_cols = 0
         self.setup_handlers()
@@ -1242,25 +1305,27 @@ class TextBox(object):
         self.run()
 
     def setup_handlers(self):
-        self.handlers = {'\n': self.close,
-                         curses.KEY_ENTER: self.close,
-                         'q': self.close,
-                         curses.KEY_RESIZE: self.close,
-                         curses.KEY_DOWN: self.scroll_down,
-                         curses.KEY_LEFT: self.scroll_left,
-                         curses.KEY_RIGHT: self.scroll_right,
-                         'j': self.scroll_down,
-                         curses.KEY_UP: self.scroll_up,
-                         'k': self.scroll_up,
-                         }
+        self.handlers = {
+            "\n": self.close,
+            curses.KEY_ENTER: self.close,
+            "q": self.close,
+            curses.KEY_RESIZE: self.close,
+            curses.KEY_DOWN: self.scroll_down,
+            curses.KEY_LEFT: self.scroll_left,
+            curses.KEY_RIGHT: self.scroll_right,
+            "j": self.scroll_down,
+            curses.KEY_UP: self.scroll_up,
+            "k": self.scroll_up,
+        }
 
     def _calculate_layout(self):
         """Setup popup window and format data. """
         self.scr.touchwin()
         self.term_rows, self.term_cols = self.scr.getmaxyx()
         self.box_height = self.term_rows - int(self.term_rows / 2)
-        self.win = curses.newwin(int(self.term_rows / 2),
-                                 self.term_cols, self.box_height, 0)
+        self.win = curses.newwin(
+            int(self.term_rows / 2), self.term_cols, self.box_height, 0
+        )
         try:
             curses.curs_set(False)
         except _curses.error:
@@ -1312,10 +1377,10 @@ class TextBox(object):
 
     def scroll_right(self):
         self.hid_cols += 1
-        self.hid_cols = min(self.longest_row, self.cols)
+        self.hid_cols = self.longest_row
 
     def move_to_starting_pos(self):
-        #todo
+        # todo
         # set number of rows now hidden
         self.hid_rows += self.cursor_line_pos
         for i in range(self.cursor_line_pos):
@@ -1324,20 +1389,20 @@ class TextBox(object):
     def display(self):
         self.win.erase()
         # add header
-        addstr(self.win, 1, 1, self.title[:self.term_cols - 3], curses.A_STANDOUT)
+        addstr(self.win, 1, 1, self.title[: self.term_cols - 3], curses.A_STANDOUT)
         num_hidden = self.hid_rows
         # get just the showable list of rows
-        visible_rows = self.tdata[num_hidden:self.hid_rows+ self.nlines]
+        visible_rows = self.tdata[num_hidden : self.hid_rows + self.nlines]
         # add all of these
         if -1 < self.match_line < len(visible_rows):
-            start = visible_rows[:self.match_line]
+            start = visible_rows[: self.match_line]
             match = visible_rows[self.match_line]
-            end = visible_rows[self.match_line+1:]
-            addstr(self.win, 2, 1, '\n '.join(start))
-            addstr(self.win, 2+len(start), 1, match, curses.A_REVERSE)
-            addstr(self.win, 2+len(start)+1, 1, '\n '.join(end))
+            end = visible_rows[self.match_line + 1 :]
+            addstr(self.win, 2, 1, "\n ".join(start))
+            addstr(self.win, 2 + len(start), 1, match, curses.A_REVERSE)
+            addstr(self.win, 2 + len(start) + 1, 1, "\n ".join(end))
         else:
-            addstr(self.win, 2, 1, '\n '.join(visible_rows))
+            addstr(self.win, 2, 1, "\n ".join(visible_rows))
 
         self.win.box()
         self.win.refresh()
@@ -1364,123 +1429,38 @@ def process_data(data, enc=None, delim=None, **kwargs):
     Returns a dictionary containing two entries: 'header', which corresponds to
     the header row, and 'data', which corresponds to the data rows.
     """
-
-    process_type = input_type(data)
-
-    if process_type == 'dict':
-        # If data is from a dict object.
-        if kwargs['orient'] == 'columns':
-            header = [str(i) for i in data.keys()]
-            # no index because dict is unordered?
-            #index = [str(i) for i in range(len(data[0]))]
-            data = list(zip(*[data[i] for i in data.keys()]))
-        elif kwargs['orient'] == 'index':
-            data =  [[i[0]] + i[1] for i in data.items()]
-            header = [str(i) for i in range(len(data[0]))]
-            #index = [str(i) for i in data.keys()]
-        if sys.version_info.major < 3:
-            data = pad_data(py2_list_to_unicode(data))
-        else:
-            data = [[str(j) for j in i] for i in pad_data(data)]
-        return {'data' : data, 'header' : header, 'index': False}
-
-    elif process_type == 'pandas':
-        import numpy as np
-        import pandas as pd
-        if data.__class__.__name__ != 'DataFrame':
-            if data.__class__.__name__ == 'Series':
-                data = pd.DataFrame(data)
-            elif data.__class__.__name__ == 'Panel':
-                data = data.to_frame()
-
-        if isinstance(data.index, pd.MultiIndex):
-            index = []
-            for item in list(data.index):
-                if isinstance(item, tuple):
-                    item = [str(i) for i in item]
-                    item = ' '.join(item)
-                index.append(item)
-        else:
-            index = [str(i) for i in list(data.index)]
-        size = len(data.index.names)
-        try:
-            data = data.reset_index()
-        # happens if index name is in columns list
-        except ValueError:
-            # make a less likely name
-            data.index.names = ['__%s__' % str(x) for x in data.index.names]
-            data = data.reset_index()
-            fixed = [n.strip('_') for n in data.columns[:size]] + list(data.columns[size:])
-            data.columns = fixed
-        header = [str(i) for i in data.columns]
-        try:
-            unicode_convert = np.vectorize(str)
-            data = unicode_convert(data.values)
-        except:
-            np_codec = detect_encoding(data.select_dtypes(include=['object']).values.ravel().tolist())
-            unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
-            data = unicode_convert(data.values)
-        data[np.where(data == 'nan')] = ''
-        return {'data': data.tolist(), 'header': header, 'index': index}
-
-    elif process_type == 'numpy':
-        # If data is from a numpy object.
-        import numpy as np
-        try:
-            unicode_convert = np.vectorize(str)
-            data = unicode_convert(data)
-        except:
-            np_codec = detect_encoding(data.ravel().tolist())
-            unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
-            data = unicode_convert(data)
-        data[np.where(data == 'nan')] = ''
-        if len(data.shape) == 1:
-            data = np.array((data,))
-        header = [str(i) for i in range(data.shape[1])]
-        index = [str(i) for i in range(data.shape[0])]
-        data = data.tolist()
-        return {'data': data, 'header': header, 'index': index}
-
-    elif process_type == 'file':
-        # If data is from a file.
-        if enc is None:
-            enc = detect_encoding(data)
-        if delim is None:
-            delim = csv_sniff(data[0], enc)
-        csv_data = []
-        if sys.version_info.major < 3:
-            csv_obj = csv.reader(data, delimiter=delim.encode(enc))
-            for row in csv_obj:
-                row = [str(x, enc) for x in row]
-                csv_data.append(row)
-        else:
-            data = [i.decode(enc) for i in data]
-            csv_obj = csv.reader(data, delimiter=delim)
-            for row in csv_obj:
-                csv_data.append(row)
-        csv_data = [[str(j) for j in i] for i in pad_data(csv_data)]
-        if len(csv_data) > 1:
-            csv_header = csv_data[0]
-            csv_data = csv_data[1:]
-            csv_index = [l[0] for l in csv_data]
-        else:
-            csv_header = [str(i) for i in range(len(csv_data[0]))]
-        return {'data': csv_data, 'header': csv_header, 'index': csv_index}
-
+    if isinstance(data.index, pd.MultiIndex):
+        index = []
+        for item in list(data.index):
+            if isinstance(item, tuple):
+                item = [str(i) for i in item]
+                item = " ".join(item)
+            index.append(item)
     else:
-        # If data is from a list of lists.
-        if sys.version_info.major < 3:
-            data = pad_data(py2_list_to_unicode(data))
-        else:
-            data = [[str(j) for j in i] for i in pad_data(data)]
+        index = [str(i) for i in list(data.index)]
+    size = len(data.index.names)
+    try:
+        data = data.reset_index()
+    # happens if index name is in columns list
+    except ValueError:
+        # make a less likely name
+        data.index.names = ["__%s__" % str(x) for x in data.index.names]
+        data = data.reset_index()
+        fixed = [n.strip("_") for n in data.columns[:size]] + list(data.columns[size:])
+        data.columns = fixed
+    header = [str(i) for i in data.columns]
+    try:
+        unicode_convert = np.vectorize(str)
+        data = unicode_convert(data.values)
+    except:
+        np_codec = detect_encoding(
+            data.select_dtypes(include=["object"]).values.ravel().tolist()
+        )
+        unicode_convert = np.vectorize(lambda x: np_decode(x, np_codec))
+        data = unicode_convert(data.values)
+    data[np.where(data == "nan")] = ""
+    return {"data": data.tolist(), "header": header, "index": index}
 
-        index = [d[0] for d in data]
-        if len(data) > 1:
-            header = data[0]
-            data = data[1:]
-        else:
-            header = [str(i) for i in range(len(data[0]))]
-        return {'data': data, 'header': header, 'index': index}
 
 def np_decode(inp_str, codec):
     """String decoding function for numpy arrays.
@@ -1489,6 +1469,7 @@ def np_decode(inp_str, codec):
         return str(inp_str)
     except:
         return inp_str.decode(codec)
+
 
 def py2_list_to_unicode(data):
     """Convert strings/int to unicode for python 2
@@ -1508,31 +1489,6 @@ def py2_list_to_unicode(data):
     return csv_data
 
 
-def input_type(data):
-    """Determines the type of data to be processed.
-
-    Python 3 - reading a file returns a list of byte strings
-    Python 2 - reading a file returns a list of strings
-    Both - list of lists is just a list
-
-    Returns: 'file' if data is from a file, 'list' if from a python list/tuple,
-    'dict' if from a python dictionary, 'numpy' if from a numpy ndarray, and
-    'pandas' if from a pandas Series, DataFrame or Panel.
-
-    """
-    if isinstance(data, dict):
-        return 'dict'
-    elif data.__class__.__name__ in ['Series', 'DataFrame', 'Panel']:
-        return 'pandas'
-    elif data.__class__.__name__ == 'ndarray':
-        return 'numpy'
-    elif isinstance(data, list):
-        if isinstance(data[0], (basestring, bytes)):
-            return 'file'
-        else:
-            return 'list'
-
-
 def pad_data(d):
     """Pad data rows to the length of the longest row.
 
@@ -1550,9 +1506,9 @@ def pad_data(d):
 def readme():
     path = os.path.dirname(os.path.realpath(__file__))
     fn = os.path.join(path, "README.rst")
-    with open(fn, 'rb') as f:
+    with open(fn, "rb") as f:
         h = f.readlines()
-        return [i.decode('utf-8') for i in h]
+        return [i.decode("utf-8") for i in h]
 
 
 def detect_encoding(data=None):
@@ -1566,8 +1522,7 @@ def detect_encoding(data=None):
         enc - system encoding
 
     """
-    enc_list = ['utf-8', 'latin-1', 'iso8859-1', 'iso8859-2',
-                'utf-16', 'cp720']
+    enc_list = ["utf-8", "latin-1", "iso8859-1", "iso8859-2", "utf-16", "cp720"]
     code = locale.getpreferredencoding(False)
     if data is None:
         return code
@@ -1600,6 +1555,7 @@ def get_index_depth(data, freeze):
         return freeze
     try:
         import pandas as pd
+
         if isinstance(data, (pd.DataFrame, pd.Series)):
             if isinstance(data.index, pd.MultiIndex):
                 return len(data.index.levels)
@@ -1610,9 +1566,25 @@ def get_index_depth(data, freeze):
     return False
 
 
-def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colours=False,
-         trunc_char='…', column_widths=None, search_str=None, persist=False, trunc_left=False,
-         double_width=False, delimiter=None, orient='columns', align_right=False, df=False, **kwargs):
+def view(
+    data,
+    enc=None,
+    start_pos=(0, 0),
+    column_width=20,
+    column_gap=2,
+    colours=False,
+    trunc_char="…",
+    column_widths=None,
+    search_str=None,
+    persist=False,
+    trunc_left=False,
+    double_width=False,
+    delimiter=None,
+    orient="columns",
+    align_right=False,
+    df=False,
+    **kwargs
+):
 
     """The curses.wrapper passes stdscr as the first argument to main +
     passes to main any other arguments passed to wrapper. Initializes
@@ -1620,9 +1592,7 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
     exceptions.
 
     Args:
-        data: data (filename, file, dict, list of lists, tuple of tuples,
-              numpy ndarray or pandas Series/DataFrame/Panel).
-              Should be normalized to equal row lengths
+        data: dataframe-like object
         enc: encoding for file/data
         start_pos: initial file position. Either a single integer for just y
             (row) position, or tuple/list (y,x)
@@ -1646,39 +1616,35 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
         buf = None
         while True:
             try:
-                if isinstance(data, basestring):
-                    with open(data, 'rb') as fd:
+                if isinstance(data, str):
+                    with open(data, "rb") as fd:
                         new_data = fd.readlines()
-                elif isinstance(data, (io.IOBase, file)):
+                elif isinstance(data, (io.IOBase, io.FileIO)):
                     new_data = data.readlines()
                 else:
                     new_data = data
 
-                index_depth = get_index_depth(new_data, kwargs.pop('freeze', False))
+                index_depth = get_index_depth(new_data, kwargs.pop("freeze", False))
 
-                if input_type(new_data):
-                    buf = process_data(new_data, enc, delimiter, orient=orient)
-                elif buf:
-                    # cannot reload the file
-                    pass
-                else:
-                    # cannot read the file
-                    return 1
+                buf = process_data(new_data, enc, delimiter, orient=orient)
 
-                curses.wrapper(main, buf,
-                               start_pos=start_pos,
-                               column_width=column_width,
-                               column_gap=column_gap,
-                               trunc_char=trunc_char,
-                               column_widths=column_widths,
-                               search_str=search_str,
-                               double_width=double_width,
-                               align_right=align_right,
-                               index_depth=index_depth,
-                               colours=colours,
-                               trunc_left=trunc_left,
-                               df=df,
-                               **kwargs)
+                curses.wrapper(
+                    main,
+                    buf,
+                    start_pos=start_pos,
+                    column_width=column_width,
+                    column_gap=column_gap,
+                    trunc_char=trunc_char,
+                    column_widths=column_widths,
+                    search_str=search_str,
+                    double_width=double_width,
+                    align_right=align_right,
+                    index_depth=index_depth,
+                    colours=colours,
+                    trunc_left=trunc_left,
+                    df=df,
+                    **kwargs
+                )
 
             except (QuitException, KeyboardInterrupt):
                 return 0
@@ -1701,11 +1667,11 @@ def view(data, enc=None, start_pos=(0, 0), column_width=20, column_gap=2, colour
                 height, width = stdscr.getmaxyx()
 
             for x in range(height):
-                cont = stdscr.instr(x, 0).decode('utf-8')
+                cont = stdscr.instr(x, 0).decode("utf-8")
                 if x < 3:
-                    cont = cont.replace('-', '─')
+                    cont = cont.replace("-", "─")
                 pad_content.append(cont)
-            out = '\n'.join(pad_content)
+            out = "\n".join(pad_content)
             if colours:
                 out = colorama_data(pad_content, colours)
-            print(out.replace('|', '│'))
+            print(out.replace("|", "│"))
