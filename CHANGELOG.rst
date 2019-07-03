@@ -1,3 +1,9 @@
+*Version 1.4.4
+
+ - Dropping support for non-pandas
+ - Dropping support for Python 2
+ - Work with most recent buzz releases (which this tabview is now exclusively for)
+ 
 *Version 1.4.3 2017/11/13*
 
   - Added an additional parse step for space-delimited files:

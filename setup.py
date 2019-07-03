@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# Original author listed was Scott Hansen. This is a tabview fork for github.com/interrogator/buzz
+
 from distutils.core import setup
 
 try:
@@ -13,12 +15,11 @@ setup(
     version="1.4.4",
     description="A curses command-line CSV and list (tabular data) viewer",
     long_description=open("README.rst", "rb").read().decode("utf-8"),
-    author="Scott Hansen",
-    author_email="firecat4153@gmail.com",
-    url="https://github.com/Tabviewer/tabview",
-    download_url="https://github.com/Tabviewer/tabview/tarball/1.4.3",
+    author="Danny McDonald",
+    author_email="mcddjx@gmail.com",
+    url="https://github.com/interrogator/tabview",
+    download_url="https://github.com/interrogator/tabview",
     packages=["tabview"],
-    scripts=["bin/tabview"],
     package_data={"tabview": ["README.rst"]},
     data_files=[("share/doc/tabview", ["README.rst", "LICENSE.txt", "CHANGELOG.rst"])],
     test_suite="test/test_tabview.py",

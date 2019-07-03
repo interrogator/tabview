@@ -1,6 +1,10 @@
-Scott Hansen <firecat four one five three at gmail dot com>
+Danny McDonald
 
-Based on code contributed by A.M. Kuchling <amk at amk dot ca>
+Based on tabview by Scott Hansen <firecat four one five three at gmail dot com>
+
+which was in turn based on code contributed by A.M. Kuchling <amk at amk dot ca>
+
+Copyright (c) 2019, Danny McDonald
 
 Copyright (c) 2017, Scott Hansen
 

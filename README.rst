@@ -1,23 +1,9 @@
-.. image:: 	https://img.shields.io/github/release/tabviewer/tabview.svg
-    :target: https://pypi.python.org/pypi/tabview/
-    :alt: Latest Version
-
-.. image:: https://img.shields.io/pypi/pyversions/tabview.svg
-    :target: https://pypi.python.org/pypi/tabview/
-    :alt: Supported Python versions
-
-.. image:: 	https://img.shields.io/pypi/l/tabview.svg
-    :target: https://pypi.python.org/pypi/tabview/
-    :alt: License
-
-.. image:: https://sourcegraph.com/github.com/TabViewer/tabview/-/badge.svg
-   :target: https://sourcegraph.com/github.com/Tabviewer/tabview
-
-.. image:: 	https://img.shields.io/travis/TabViewer/tabview.svg
-    :target: https://travis-ci.org/TabViewer/tabview
 
 Tabview  
 =========
+
+Note: this fork is designed only to work with `buzz <https://github.com/interrogator/buzz/>`_
+
 
 View a CSV file in a spreadsheet-like display.
 
