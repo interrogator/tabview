@@ -12,7 +12,7 @@ except ImportError:
 
 setup(
     name="tabview",
-    version="1.4.4",
+    version="1.4.5",
     description="A curses command-line CSV and list (tabular data) viewer",
     long_description=open("README.rst", "rb").read().decode("utf-8"),
     author="Danny McDonald",
